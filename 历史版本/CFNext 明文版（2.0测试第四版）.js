@@ -1,4 +1,4 @@
-//  === 面板集成：CFNext 新界面（独立设计）+ 配额安全（CF 用量监控）===
+﻿//  === 面板集成：CFNext 新界面（独立设计）+ 配额安全（CF 用量监控）===
 // ============================================================================
 //  CFNext —— Cloudflare 代理管理面板 · 全新独立编写
 //  ----------------------------------------------------------------------------
@@ -283,12 +283,12 @@ dns:
   nameserver-policy:
     # 广告域名直接返回空应答
     "rule-set:Advertising,AWAvenueAds": rcode://success
-    # 直连类：国内 DoH（微软已并入直连，微软域名走国内解析后直连）
-    "rule-set:Direct,Private,China,Microsoft":
+    # 直连类：国内 DoH
+    "rule-set:Direct,Private,China":
       - "https://dns.alidns.com/dns-query"
       - "https://doh.pub/dns-query"
     # 走代理类：国外 DoH（连接本身经代理隧道，不直连暴露查询）
-    "rule-set:AI,Telegram,Twitter,SocialMedia,Netflix,YouTube,Spotify,TikTok,disney,Google,Proxy":
+    "rule-set:AI,Telegram,Twitter,SocialMedia,Netflix,YouTube,Spotify,TikTok,disney,Google,Microsoft,Proxy":
       - "https://dns.google/dns-query"
       - "https://cloudflare-dns.com/dns-query"
 
@@ -329,15 +329,13 @@ rules:
   - DOMAIN,dns.google,一键连接
   - DOMAIN,cloudflare-dns.com,一键连接
 
-  # 大陆直连优先（置于国外服务规则之前：大陆应用一律直连，不被国外服务规则集抢先命中）
+  # 直连规则
   - RULE-SET,Private,直接连接
   - RULE-SET,Direct,直接连接
   - RULE-SET,Download,直接连接
   - RULE-SET,AppleCN,直接连接
-  - RULE-SET,Microsoft,直接连接        # 微软全家桶直连（Office / OneDrive / Windows 更新 / Teams / Xbox 等）
-  - RULE-SET,China,直接连接             # 国内域名直连
   # 阻止走代理的 QUIC（强制回退 TCP，避免 QUIC 绕过代理 / 被干扰）。
-  # 放在直连规则之后：直连 QUIC（大陆 / 微软 / 苹果）不受影响。如需 Telegram 语音等 UDP，可删除此行。
+  # 放在直连规则之后：直连 QUIC 不受影响。如需 Telegram 语音等 UDP，可删除此行。
   - AND,((DST-PORT,443),(NETWORK,UDP)),REJECT
 
   # 常用国外服务（统一走一键连接）
@@ -351,8 +349,10 @@ rules:
   - RULE-SET,TikTok,一键连接
   - RULE-SET,disney,一键连接
   - RULE-SET,Google,一键连接
+  - RULE-SET,Microsoft,一键连接
   - RULE-SET,github,一键连接
   - RULE-SET,Proxy,一键连接
+  - RULE-SET,China,直接连接
 
   # IP规则
   - RULE-SET,PrivateIP,直接连接,no-resolve
@@ -360,10 +360,7 @@ rules:
   - RULE-SET,ProxyIP,一键连接,no-resolve
   - RULE-SET,ChinaIP,直接连接,no-resolve
 
-  # 大陆 IP 兜底直连：覆盖规则集未收录的域名 / 纯 IP 连接的大陆应用（GEOIP 库覆盖面更全）
-  - GEOIP,CN,直接连接,no-resolve
-
-  # 兜底规则：其余（国外）走一键连接
+  # 兜底规则：国内 IP 直连（ChinaIP 规则集已覆盖），其余走一键连接
   - MATCH,一键连接
 
 # ==================== 规则集 ====================
@@ -372,7 +369,6 @@ BehaviorDN: &BehaviorDN {type: http, behavior: domain, format: mrs, interval: 86
 BehaviorDY: &BehaviorDY {type: http, behavior: domain, format: yaml, interval: 86400}
 BehaviorIP: &BehaviorIP {type: http, behavior: ipcidr, format: mrs, interval: 86400}
 ClassicalYaml: &ClassicalYaml {type: http, behavior: classical, interval: 3600, format: yaml, proxy: DIRECT}
-BehaviorCL: &BehaviorCL {type: http, behavior: classical, interval: 86400, format: yaml, proxy: DIRECT}   # 经典规则集（blackmatrix7 等，DOMAIN/DOMAIN-SUFFIX/DOMAIN-KEYWORD/PROCESS-NAME）
 
 # 规则提供者（仅保留常用）
 rule-providers:
@@ -385,7 +381,7 @@ rule-providers:
   Private:        {<<: *BehaviorDN, url: https://github.com/666OS/rules/raw/release/mihomo/domain/Private.mrs}
   Download:       {<<: *BehaviorDN, url: https://github.com/666OS/rules/raw/release/mihomo/domain/Download.mrs}
   AppleCN:        {<<: *BehaviorDN, url: https://github.com/666OS/rules/raw/release/mihomo/domain/AppleCN.mrs}
-  China:          {<<: *BehaviorCL, url: https://cdn.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/ChinaMaxNoIP/ChinaMaxNoIP_No_Resolve.yaml}   # 大陆直连全量：ChinaMaxNoIP（11万+ 域名，含大陆可达国际服务），每日更新
+  China:          {<<: *BehaviorDN, url: https://github.com/666OS/rules/raw/release/mihomo/domain/China.mrs}
   # 常用国外服务
   AI:             {<<: *BehaviorDN, url: https://github.com/666OS/rules/raw/release/mihomo/domain/AI.mrs}
   Telegram:       {<<: *BehaviorDN, url: https://github.com/666OS/rules/raw/release/mihomo/domain/Telegram.mrs}
@@ -394,7 +390,7 @@ rule-providers:
   Netflix:        {<<: *BehaviorDN, url: https://github.com/666OS/rules/raw/release/mihomo/domain/Netflix.mrs}
   YouTube:        {<<: *BehaviorDN, url: https://github.com/666OS/rules/raw/release/mihomo/domain/YouTube.mrs}
   Google:         {<<: *BehaviorDN, url: https://github.com/666OS/rules/raw/release/mihomo/domain/Google.mrs}
-  Microsoft:      {<<: *BehaviorCL, url: https://cdn.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/Microsoft/Microsoft.yaml}   # 微软全家桶全量：blackmatrix7（Office/OneDrive/Xbox/Teams/Skype/Bing/Azure 等）
+  Microsoft:      {<<: *BehaviorDN, url: https://github.com/666OS/rules/raw/release/mihomo/domain/Microsoft.mrs}
   Proxy:          {<<: *BehaviorDN, url: https://github.com/666OS/rules/raw/release/mihomo/domain/Proxy.mrs}
   # 媒体（DustinWin）
   Spotify:        {<<: *BehaviorDN, url: https://github.com/DustinWin/ruleset_geodata/releases/download/mihomo-ruleset/spotify.mrs}
@@ -531,16 +527,6 @@ const DEFAULT_CONFIG = {
   nodeLimit: true,      // 节点数量控制：默认开启，按 nodeLimitCount 精确限制节点总数
   nodeLimitCount: 500,  // 开启节点数量控制后，最多下发的节点数（默认 500）
   polling: false,       // 轮询机制：开启后每次更新订阅轮询下发新节点（KV issued 去重 + 数量限制），关闭后忽略轮询与限制、下发全部节点
-  probeAlive: false,    // ★ 节点测活（TCP 探测）总开关：默认关闭（推荐，对齐 V1.0.6）——订阅不做任何 TCP 握手/HTTP 探测与剔除，
-                        //   按数据源原始顺序全量下发、客户端自行择优（秒回，v2rayNG/AsteriskNG 刷新正常）；面板开启或 PROBE_ALIVE=1 强制开启。
-                        //   节点形态：所有模式统一按 1.0.6 机制——端口原样单端口下发（固定 443、不随机 TLS 端口、不追加明文端口变体）。
-                        //   关闭：所有测活函数直接放行，不做任何 TCP 握手/HTTP 探测与剔除——节点的下发策略、出入站方式、
-                        //   ProxyIP 等节点相关均按 V1.x 处理：按数据源原始顺序（bestcf 地区池行序 = 质量序）全量下发，客户端自行择优；
-                        //   开启：对候选地址做 TCP 握手/HTTP 探测并剔除判死项，
-                        //   含精选池/优选 IP/域名预检/ProxyIP 兜底各环节的测活剔除（自定义订阅 / 随机优选模式除外：不进行测活）。
-                        //   注意：Cloudflare 运行时禁止出站连接 CF IP 段（官方文档：Outbound TCP sockets to
-                        //   Cloudflare IP ranges are blocked），因此对 CF 段 IP 的探测恒失败 → 精选池会被整体判死、
-                        //   订阅被迫用随机 CF IP 补足（客户端可达率仅 28-45%，而精选池实测 97%）。可用环境变量 PROBE_ALIVE=0 覆盖关闭
   // 配额安全（账户监控）：填写 CF 账户 ID 与 API 令牌后，面板可查询当日用量并按需自动收缩节点上限
   cfAccountId: '',      // CF 账户监控：账户 ID（Account Tag），留空则监控关闭；可用环境变量 CF_ACCOUNT_ID 覆盖
   cfApiToken: '',       // CF 账户监控：API 令牌（需 Workers 用量分析读取权限），可用环境变量 CF_API_TOKEN 覆盖
@@ -595,6 +581,12 @@ const BESTCF_REGION_URLS = [
   { label: '台湾', region: 'TW', url: 'https://bestcf.pages.dev/random-region/TW/100.txt', count: 12 }
 ];
 
+// ProxyIP 兜底域名（非 CF IP 段，网络兼容性更好；TCP 测活通过才下发，避免死节点）
+const PROXY_IP_DOMAINS = {
+  HK: 'ProxyIP.HK.CMLiussss.net', US: 'ProxyIP.US.CMLiussss.net', JP: 'ProxyIP.JP.CMLiussss.net',
+  TW: 'ProxyIP.TW.CMLiussss.net', SG: 'ProxyIP.SG.CMLiussss.net', KR: 'ProxyIP.KR.CMLiussss.net',
+  DE: 'ProxyIP.DE.CMLiussss.net', GB: 'ProxyIP.GB.CMLiussss.net', NL: 'ProxyIP.NL.CMLiussss.net'
+};
 
 const BUILTIN_PREFERRED_IPS = [
   '104.17.127.180#优选IP-001', '104.16.123.96#优选IP-002', '104.16.124.96#优选IP-003', '104.16.125.96#优选IP-004',
@@ -690,6 +682,15 @@ const DEFAULT_PREFERRED_DOMAINS = [
 
 // 明文 HTTP 端口：Cloudflare 边缘在这些端口上不支持 TLS，节点必须走明文 ws（否则握手失败连不通）
 const HTTP_PORTS = new Set([80, 8080, 8880, 2052, 2082, 2086, 2095]);
+const HTTP_PORTS_LIST = [80, 8080, 8880, 2052, 2082, 2086, 2095];
+// TLS 端口组：443 为默认；2053/2083/2087/2096/8443 为 CF 边缘 TLS 替代端口
+const TLS_PORTS = [443, 2053, 2083, 2087, 2096, 8443];
+// 稳定字符串哈希（同 IP 固定分配同一明文端口，避免订阅刷新后端口跳变）
+function hashStr(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) { h = ((h << 5) - h + s.charCodeAt(i)) | 0; }
+  return Math.abs(h);
+}
 
 // 优选器预设数据源：微测网接口 + 优选 IP 来源
 const OPTIMIZE_SOURCES = {
@@ -995,9 +996,6 @@ async function loadConfig(env) {
   if (env.ALPN) cfg.alpn = String(env.ALPN);
   if (env.YX) cfg.preferredIPs = parseIPList(env.YX);
   if (env.YXURL) cfg.optimizer.sourceURL = String(env.YXURL);
-  // 节点测活：环境变量 PROBE_ALIVE=1/true 强制开启，=0/false 强制关闭（不走面板也能改）
-  if (env.PROBE_ALIVE === '1' || env.PROBE_ALIVE === 'true') cfg.probeAlive = true;
-  if (env.PROBE_ALIVE === '0' || env.PROBE_ALIVE === 'false') cfg.probeAlive = false;
   // KV 图形化配置（更高优先级）
   if (env.K && typeof env.K.get === 'function') {
     try {
@@ -1016,8 +1014,6 @@ async function loadConfig(env) {
   // 清理已废弃字段（fragment 分片功能已移除，避免 KV 残留字段混入配置）
   delete cfg.fragment;
   delete cfg.fragmentParam;
-  // 节点测活开关同步到测活函数（订阅生成与手动测速都依赖此全局标记）
-  setProbeAlive(!!cfg.probeAlive);
   // 兜底
   // 兜底：path 为空或为 "/" 时一律回退 UUID（兼容 KV 残留旧值，保证订阅 ws 路径与 Worker 面板路径统一为 /UUID）
   cfg.uuid = String(cfg.uuid || '').toLowerCase();
@@ -2251,13 +2247,6 @@ function xhttpPadding(cfg) {
   };
 }
 
-// vless/trojan 分享链接 # 后的节点名：非 ASCII（中文等）原样输出、不做 URL 编码，仅转义 URI 特殊字符（% # ? 空格）。
-// 原因：v2rayNG/AsteriskNG 对 fragment 的 %XX 按系统编码（GBK）做 URL 解码，UTF-8 编码的中文（%E9%A6...）会被误读成乱码
-// （如 香港 → 棣欐腐、台湾 → 鋆版咕）；原样中文走明文 UTF-8，GBK/UTF-8 解码客户端均正常显示。
-function uriFragName(name) {
-  return String(name).replace(/%/g, '%25').replace(/#/g, '%23').replace(/\?/g, '%3F').replace(/ /g, '%20');
-}
-
 function vlessNode(cfg, server, port, name, extra = {}) {
   const host = cfg.host;
   const addr = server.includes(':') && !server.startsWith('[') ? `[${server}]` : server;  // IPv6 需方括号
@@ -2280,7 +2269,7 @@ function vlessNode(cfg, server, port, name, extra = {}) {
     // ECH：输出 "查询域名+DoH"（xray/V2rayN 客户端本地查询 ECH 配置，Worker 端拉取会与用户边缘密钥不匹配导致握手失败）
     q += '&ech=' + enc((cfg.echHost || 'cloudflare-ech.com') + '+' + (cfg.echDns || 'https://223.5.5.5/dns-query'));
   }
-  return `vless://${cfg.uuid}@${addr}:${port}?${q}#${uriFragName(name)}`;
+  return `vless://${cfg.uuid}@${addr}:${port}?${q}#${encodeURIComponent(name)}`;
 }
 
 function trojanNode(cfg, server, port, name) {
@@ -2295,7 +2284,7 @@ function trojanNode(cfg, server, port, name) {
     : 'security=none&host=' + enc(host) + '&type=ws&path=' + enc('/' + cfg.path);
   if (cfg.alpn && isTls) q += '&alpn=' + enc(cfg.alpn);
   if (cfg.ech && isTls) q += '&ech=' + enc((cfg.echHost || 'cloudflare-ech.com') + '+' + (cfg.echDns || 'https://223.5.5.5/dns-query'));   // ECH：仅 TLS 端口有效
-  return `trojan://${cfg.trojanPassword || cfg.uuid}@${addr}:${port}?${q}#${uriFragName(name)}`;
+  return `trojan://${cfg.trojanPassword || cfg.uuid}@${addr}:${port}?${q}#${encodeURIComponent(name)}`;
 }
 
 // 优选域名 / 优选 API 的 DNS 解析缓存（TTL 10 分钟：域名或 URL → IP 列表）
@@ -2565,29 +2554,33 @@ async function buildNodes(cfg, cap = 800, skipSet = null) {
   // 仅自定义模式（custom + 关闭追加）：严格按「优选节点」输入框内容下发，放行非 CF 段 IP（用户自担可用性）；
   // 其它模式（默认/追加/随机）入口必须是 CF 段——非 CF IP 无法转发到 Worker（历史 v2rayNG 全 -1 根因）
   const allowNonCF = (mode === 'custom' && !(cfg.optimizer && cfg.optimizer.subIncludeDefault));
-  // 节点形态统一按 1.0.6 机制（方案 B）：所有模式端口原样单端口下发（固定 443、不随机 TLS 端口、不追加明文端口变体）
-  // 测活剔除范围（方案 A）：默认模式开启测活剔除死节点；自定义订阅 / 随机优选模式不测活
-  const probeSkip = (mode === 'custom' || mode === 'random');
   const push = (server, port, name, trusted) => {
     if (nodes.length >= cap) return;   // 生成过程限流：避免多协议膨胀超 Worker CPU
     // 入口 IP 硬性要求：非 CF 段 IP 无法转发到 Worker，直接丢弃；
     // 例外：bestcf 地区优选池的社区中转 IP（trusted 标记）可用作客户端入口（v1.0.5 修复）
     if (isValidIp(server) && !isCloudflareIP(server) && !allowNonCF && !trusted) return;
-    const key = server + ':' + port;   // 按 服务器:端口 去重（单端口机制：同 IP 同端口仅下发一次）
+    const key = server + ':' + port;   // 按 服务器:端口 去重（多端口机制下同 IP 不同端口各自保留）
     if (used.has(key)) return;
     used.add(key);
     const isTls = !HTTP_PORTS.has(Number(port));
     if (cfg.tlsOnly && !isTls) return;   // TLS 控制：仅下发 TLS 端口节点，明文端口跳过
-    // 节点端口统一按 1.0.6 机制（方案 B）：端口原样下发（默认/自定义/随机优选均固定源端口，通常是 443），
-    // 不做 TLS 端口随机（443 全域可达性最佳），也不追加明文端口变体
-    const finalPort = Number(port);
+    // TLS 端口随机：从 CF 支持的 TLS 端口池（443/2053/2083/2087/2096/8443）随机分配，不固定 443，
+    // 与轮询换新配合——每次更新订阅节点端口随之换新；明文端口保持不变
+    const finalPort = isTls ? TLS_PORTS[Math.floor(Math.random() * TLS_PORTS.length)] : Number(port);
     if (cfg.enableVless) nodes.push(vlessNode(cfg, server, finalPort, name));
     if (cfg.enableTrojan) nodes.push(trojanNode(cfg, server, isTls ? finalPort : Number(port), name));  // Trojan 明文/TLS 端口均下发
     if (cfg.enableXhttp && isTls) nodes.push(vlessNode(cfg, server, finalPort, name, { type: 'xhttp' }));  // XHTTP 仅 TLS 端口
   };
-  // 单端口下发（1.0.6 机制，方案 B）：每个地址按源端口（通常 443）单条下发，不追加明文端口变体
+  // 多端口展开（显著提升节点可用性）：
+  // 每个地址先按原端口下发，443/TLS 端口再补一条稳定分配的明文端口节点；
+  // 明文端口走 security=none 明文 ws，不被 Cloudflare 的 TLS 指纹检测，实测可用率远高于纯 443。
   const multiPort = (server, port, name, trusted) => {
-    push(server, Number(port) || 443, name, trusted);
+    const base = Number(port) || 443;
+    push(server, base, name, trusted);
+    if (cfg.tlsOnly) return;              // TLS 控制开启时不补明文端口
+    if (HTTP_PORTS.has(base)) return;     // 本身就是明文端口：不重复追加
+    const hp = HTTP_PORTS_LIST[hashStr(String(server)) % HTTP_PORTS_LIST.length];
+    push(server, hp, name + '-' + hp, trusted);    // 同 IP 稳定分配同一明文端口（订阅刷新不跳变）
   };
   if (mode === 'random') {
     let n = Math.min(Math.max(parseInt(cfg.optimizer.subRandomCount) || 16, 1), Math.min(99, cap));
@@ -2609,12 +2602,18 @@ async function buildNodes(cfg, cap = 800, skipSet = null) {
     }
     for (const ip of randIPs) {
       if (made >= n) break;
-      // 随机优选模式：按 1.0.6 机制——每个 IP 每协议仅固定 443 单端口下发，不随机 TLS 端口、不追加明文端口变体
-      if (cfg.enableVless) { nodes.push(vlessNode(cfg, ip, 443, '优选IP-' + String(made + 1).padStart(2, '0'))); made++; }
+      // 多端口交替：TLS 端口随机（不固定 443）与稳定明文端口交替，提升节点可用率与换新感
+      const hp = HTTP_PORTS_LIST[hashStr(String(ip)) % HTTP_PORTS_LIST.length];
+      const tp = TLS_PORTS[Math.floor(Math.random() * TLS_PORTS.length)];
+      if (cfg.enableVless) { nodes.push(vlessNode(cfg, ip, tp, '优选IP-' + String(made + 1).padStart(2, '0'))); made++; }
       if (made >= n) break;
-      if (cfg.enableTrojan) { nodes.push(trojanNode(cfg, ip, 443, '优选IP-' + String(made + 1).padStart(2, '0'))); made++; }
+      if (cfg.enableVless && !cfg.tlsOnly) { nodes.push(vlessNode(cfg, ip, hp, '优选IP-' + String(made + 1).padStart(2, '0') + '-' + hp)); made++; }
       if (made >= n) break;
-      if (cfg.enableXhttp) { nodes.push(vlessNode(cfg, ip, 443, '优选IP-' + String(made + 1).padStart(2, '0'), { type: 'xhttp' })); made++; }
+      if (cfg.enableTrojan) { nodes.push(trojanNode(cfg, ip, tp, '优选IP-' + String(made + 1).padStart(2, '0'))); made++; }
+      if (made >= n) break;
+      if (cfg.enableTrojan && !cfg.tlsOnly) { nodes.push(trojanNode(cfg, ip, hp, '优选IP-' + String(made + 1).padStart(2, '0') + '-' + hp)); made++; }
+      if (made >= n) break;
+      if (cfg.enableXhttp) { nodes.push(vlessNode(cfg, ip, tp, '优选IP-' + String(made + 1).padStart(2, '0'), { type: 'xhttp' })); made++; }
     }
     return nodes;
   }
@@ -2669,11 +2668,9 @@ async function buildNodes(cfg, cap = 800, skipSet = null) {
     if (fillIPs.length < need) fillIPs = [...BUILTIN_STABLE_IPS, ...fillPool];
     if (fillIPs.length > 0) {
       const probeCount = Math.min(fillIPs.length, Math.max(need, 20), 60);
-      const probeShot = fillIPs.slice(0, probeCount);
-      // 自定义订阅 / 随机优选模式不进行测活（节点原样下发）；默认模式保持测活剔除死节点
-      // 并发受限（≤4）：排队不再计入超时，避免假死
-      const probeOk = probeSkip ? probeShot.map(() => true) : await probeAll(probeShot, (ip) => testProxyAlive(ip, 443, 1500));
-      const alive = probeShot.filter((ip, i) => probeOk[i]);
+      const probe = fillIPs.slice(0, probeCount).map(ip => testProxyAlive(ip, 443, 1500).then(ok => ({ ip, ok })));
+      const checked = await Promise.all(probe);
+      const alive = checked.filter(c => c.ok).map(c => c.ip);
       const rest = fillIPs.slice(probeCount);
       fillIPs = [...alive, ...rest].slice(0, need);
     }
@@ -3033,7 +3030,6 @@ function generateSingbox(cfg, nodes) {
         { protocol: 'dns', outbound: 'dns-out' },
         { ip_is_private: true, outbound: 'direct' },
         ...RULE_SETS.map(([rs, out]) => ({ rule_set: [rs], outbound: out })),
-        { geoip: ['cn'], outbound: 'direct' },   // 大陆 IP 兜底直连（覆盖未收录域名 / 纯 IP 连接的大陆应用）
         { ip_is_private: true, outbound: 'block' }
       ],
       rule_set: RULE_SETS.map(([rs]) => ({
@@ -3145,51 +3141,8 @@ final, 🐟 漏网之鱼
 `;
 }
 
-// ★ 测活总开关（见 DEFAULT_CONFIG.probeAlive / 面板「节点测活」）：关闭时所有测活函数直接返回 true（不剔除任何节点）
-// 注意：由于 Cloudflare 运行时禁止 connect() 到 CF IP 段，对 CF 段 IP 的探测恒失败（抛
-// "proxy request failed, cannot connect to the specified address"），故测活仅在「第三方中转（非 CF 段）」
-// 场景有真实信息量；对 CF 段 IP 关闭测活 = 避免把最优来源整体判死。
-let PROBE_ALIVE_ENABLED = false;
-function setProbeAlive(v) { PROBE_ALIVE_ENABLED = (v === true || v === 'true' || v === '1' || v === 1); }
-
-// ★ 探测并发闸（见下面的 probeLimit）
-// 为什么必须有：Cloudflare Workers 每次调用**同时等待响应头的连接数上限是 6**（Free/Paid 相同，官方 limits 文档
-// "Simultaneous open connections"）。第 7 个连接不会报错，而是**排队**；而各测活函数用的是
-// Promise.race(conn.opened, 超时)，计时器在 connect() 调用那一刻就开始跑 ——
-// 于是排队的探测会「还没轮到建连就超时」→ 被误判为死节点（假死）。
-// 这里用信号量把并发压到 SAFE 以下，超时计时器改为「拿到令牌后才启动」，排队不再计入超时。
-const PROBE_CONCURRENCY = 4;              // 留 2 个名额给 DoH fetch / KV / D1 等其它出网调用
-let probeRunning = 0;
-const probeWaiters = [];
-function probeLimit() {
-  if (probeRunning < PROBE_CONCURRENCY) { probeRunning++; return Promise.resolve(); }
-  return new Promise(res => probeWaiters.push(res));
-}
-function probeRelease() {
-  const next = probeWaiters.shift();
-  if (next) next(); else probeRunning--;
-}
-// 对所有候选做并发受限的探测；fn 收 (item, index)，返回真值 = 可用
-async function probeAll(items, fn) {
-  const out = [];
-  let idx = 0;
-  const workers = Array.from({ length: Math.min(PROBE_CONCURRENCY, items.length) }, async () => {
-    while (idx < items.length) {
-      const i = idx++;
-      await probeLimit();
-      try { out[i] = await fn(items[i], i); }
-      catch (e) { out[i] = false; }
-      finally { probeRelease(); }
-    }
-  });
-  await Promise.all(workers);
-  return out;
-}
-
-
 // ProxyIP 可用性检测：TCP 连通测试（参考 TunnelBoard 测活思路，独立实现），2 秒超时
 async function testProxyAlive(server, port, timeoutMs) {
-  if (!PROBE_ALIVE_ENABLED) return true;   // 测活关闭：不剔除
   const ms = timeoutMs || 2000;
   try {
     const conn = connect({ hostname: server, port: port });
@@ -3201,10 +3154,6 @@ async function testProxyAlive(server, port, timeoutMs) {
 
 // relay IP 双重测活：TCP 连通 + HTTP GET 返回 200/204 才算活（纯 TCP 通但 HTTP 不通的假活节点剔除）
 async function testRelayAlive(server, port, timeoutMs) {
-  if (!PROBE_ALIVE_ENABLED) return true;   // 测活关闭：不剔除
-  return testRelayAliveRaw(server, port, timeoutMs);
-}
-async function testRelayAliveRaw(server, port, timeoutMs) {
   const ms = timeoutMs || 2500;
   try {
     const conn = connect({ hostname: server, port: port });
@@ -3220,6 +3169,16 @@ async function testRelayAliveRaw(server, port, timeoutMs) {
   } catch (e) { return false; }
 }
 
+// ProxyIP 测活结果缓存（10 分钟），避免每次订阅都重复连通测试
+const proxyAliveCache = {};
+async function testProxyAliveCached(server, port) {
+  const key = server + ':' + port;
+  const hit = proxyAliveCache[key];
+  if (hit && Date.now() - hit.at < 10 * 60 * 1000) return hit.alive;
+  const alive = await testProxyAlive(server, port);
+  proxyAliveCache[key] = { alive, at: Date.now() };
+  return alive;
+}
 
 // 域名可用性预检：DoH 解析首个 CF IP → TCP 测活，剔除死域名（NXDOMAIN / 解析到死 IP，客户端测速 -1 主因）。
 // 活域名仍按域名形式下发（保留客户端动态 DNS 解析拿最优边缘的优势）；结果 10 分钟缓存，避免每次订阅重测
@@ -3234,19 +3193,16 @@ async function dohFirstCF(domain) {
 }
 const DOMAIN_ALIVE_CACHE = { t: 0, list: null };
 async function filterAliveDomains(domainText) {
-  // 测活关闭：域名预检直接跳过，返回原文（原样下发，不剔除任何域名）
-  if (!PROBE_ALIVE_ENABLED) return String(domainText || '').split(/[\n,;]+/).map(s => s.trim().replace(/^\*\./, '')).filter(Boolean).join('\n');
   if (Date.now() - DOMAIN_ALIVE_CACHE.t < 10 * 60 * 1000 && DOMAIN_ALIVE_CACHE.list !== null) return DOMAIN_ALIVE_CACHE.list;
   const domains = String(domainText || '').split(/[\n,;]+/).map(s => s.trim().replace(/^\*\./, '')).filter(Boolean);
   // DoH 解析 + TCP 测活双重预检（10 分钟缓存）：解析不出 CF IP 或解析到非 CF 段的域名（源站已搬走）直接判死；
   // 解析出 CF IP 再做 TCP 测活，连接超时的死域名剔除——客户端测速 -1 主因
-  // 并发受限（≤4）：DoH fetch + TCP 探测都算出网，避免撞 6 连接上限；排队不计入超时
-  const checked = await probeAll(domains, async (d) => {
+  const checked = await Promise.all(domains.map(async (d) => {
     const ip = await dohFirstCF(d);
-    if (!ip || !isCloudflareIP(ip)) return { d, ok: false };
-    return { d, ok: await testProxyAlive(ip, 443) };
-  });
-  const alive = checked.map((c, i) => (c && c.ok ? domains[i] : null)).filter(Boolean);
+    if (!ip || !isCloudflareIP(ip)) return { d, alive: false };
+    return { d, alive: await testProxyAliveCached(ip, 443) };
+  }));
+  const alive = checked.filter(c => c.alive).map(c => c.d);
   DOMAIN_ALIVE_CACHE.t = Date.now();
   DOMAIN_ALIVE_CACHE.list = alive.join('\n');
   return DOMAIN_ALIVE_CACHE.list;
@@ -3357,20 +3313,20 @@ async function generateSubscription(cfg, requestUrl, format, ua, colo) {
       }
       const relayToTest = relayNew.slice(0, 100);
       const cfToTest = cfNew.slice(0, 150);
-      // 并发受限（≤4，见 probeAll）：避免撞 CF「同时连接上限 6」导致排队即超时的假死
-      const [relayOk, cfOk] = await Promise.all([
-        probeAll(relayToTest, (x) => testRelayAlive(x.ip, x.port || 443, 2500)),
-        probeAll(cfToTest, (x) => testProxyAlive(x.ip, x.port || 443, 2500)),
+      const [relayTested, cfTested] = await Promise.all([
+        Promise.all(relayToTest.map(x => testRelayAlive(x.ip, x.port || 443, 2500).then(ok => ({ ip: x.ip, ok })))),
+        Promise.all(cfToTest.map(x => testProxyAlive(x.ip, x.port || 443, 2500).then(ok => ({ ip: x.ip, ok })))),
       ]);
-      const aliveRelay = relayToTest.filter((x, i) => relayOk[i]);
-      const aliveCf = cfToTest.filter((x, i) => cfOk[i]);
+      const aliveRelay = relayTested.filter(r => r.ok).map(r => relayToTest.find(x => x.ip === r.ip)).filter(Boolean);
+      const aliveCf = cfTested.filter(r => r.ok).map(r => cfToTest.find(x => x.ip === r.ip)).filter(Boolean);
       const finalCf = aliveCf.slice(0, 210);
       const finalRelay = aliveRelay.slice(0, 40);
       cfg.preferredIPs = [...(cfg.preferredIPs || []), ...finalCf, ...finalRelay].slice(0, 250);
     } catch (e) { /* 初始化失败不影响现有逻辑 */ }
   }
   // 自定义域名部署（非 *.workers.dev）：Cloudflare 边缘实测明文 HTTP 端口（80/8080/8880/2052/2082/2086/2095）全部拒绝，
-  // 自动禁用明文端口节点（等效 tlsOnly）；节点端口统一固定为源端口（通常 443）单端口下发（1.0.6 机制）。
+  // 自动禁用明文端口节点（等效 tlsOnly）；TLS 端口不固定 443，而是从 CF 支持的 TLS 端口池随机分配（轮询换新端口随之换新）。
+  // workers.dev 部署保留明文多端口机制。
   const hostOnly443 = !/\.workers\.dev$/i.test(new URL(requestUrl).hostname);
   const rc = Object.assign({}, cfg, { host: cfg.host || new URL(requestUrl).hostname });
   if (hostOnly443) { rc.tlsOnly = true; }
@@ -3562,35 +3518,60 @@ async function generateSubscription(cfg, requestUrl, format, ua, colo) {
   // 内置节点仅在「追加内置优选池与默认地区源」开启时作为追加下发
   if (cfg.nodeLimit && mode && !strictCustom && nodes.length < cap) {
     const need = cap - nodes.length;
-    // 该补足块仅服务「自定义订阅（追加内置）/ 随机优选」两种模式：
-    // 优先用 bestcf 区域优选池（实时测速过的优质 IP）补齐，不足再回退 CF CIDR 随机补足——
-    // 避免纯随机 CIDR 灌入大量「延迟 -1」死节点；两模式均不进行测活（按 1.0.6 机制）
     const seen = new Set();
     for (const n of nodes) { try { seen.add(parseNodeServer(n).host); } catch (e) {} }
-    const pushFill = (ip, port, name) => {
+    const pushOne = (server, port, name) => {
       if (nodes.length >= cap) return;
-      if (seen.has(ip)) return;
-      seen.add(ip);
-      nodes.push(vlessNode(rc, ip, port || 443, name));
+      if (seen.has(server)) return;
+      seen.add(server);
+      const hp = HTTP_PORTS_LIST[hashStr(String(server)) % HTTP_PORTS_LIST.length];
+      const tp = TLS_PORTS[Math.floor(Math.random() * TLS_PORTS.length)];
+      if (!cfg.tlsOnly && nodes.length < cap) nodes.push(vlessNode(rc, server, hp, name + '-' + hp));
+      if (nodes.length >= cap) return;
+      nodes.push(vlessNode(rc, server, tp, name));
     };
-    let fi = 0;
+    // ① bestcf 区域优选池
     try {
       const pool = await fetchBestcfPool();
       const fresh = skipSet ? pool.filter(p => !skipSet.has(p.ip)) : pool;
       const ordered = fresh.length >= need ? fresh : pool;
-      for (const p of ordered) { pushFill(p.ip, p.port, p.name || ('优选IP-' + String(p.port))); if (nodes.length >= cap) break; }
+      for (const p of ordered) { pushOne(p.ip, p.port, p.name || ('优选IP-' + String(p.port))); if (nodes.length >= cap) break; }
     } catch (e) {}
+    // ② ProxyIP 域名兜底（TCP 测活通过才下发）
+    if (nodes.length < cap) {
+      try {
+        const proxyCandidates = Object.keys(PROXY_IP_DOMAINS).map(k => ({ server: PROXY_IP_DOMAINS[k], port: 443, name: '反代·' + k }));
+        const alive = [];
+        for (const p of proxyCandidates) {
+          if (await testProxyAliveCached(p.server, p.port)) alive.push(p);
+          if (alive.length >= 6) break;
+        }
+        for (const p of alive) { pushOne(p.server, p.port, p.name); if (nodes.length >= cap) break; }
+      } catch (e) {}
+    }
+    // ③ CF CIDR 随机补足（最后手段，仅补少量；TCP 测活，可达排前，避免「延迟 -1」死节点）
     if (nodes.length < cap) {
       const left = cap - nodes.length;
-      const v6c = OFFICIAL_V6_CIDRS;
-      const fillCidrs = onlyV6 ? v6c : (wantV6 ? [...REACHABLE_CIDRS, ...v6c] : REACHABLE_CIDRS);
-      const pool = randomIPsFromCidrs(fillCidrs, left * 3);
+      const pool = randomIPsFromCidrs(REACHABLE_CIDRS, left * 3);
       const freshP = skipSet ? pool.filter(ip => !skipSet.has(ip)) : pool;
-      const fillIPs = (freshP.length >= left) ? freshP : pool;
+      let fillIPs = (freshP.length >= left) ? freshP : pool;
+      if (fillIPs.length > 0) {
+        const probeCount = Math.min(fillIPs.length, Math.max(left, 20), 60);
+        const probe = fillIPs.slice(0, probeCount).map(ip => testProxyAlive(ip, 443, 1500).then(ok => ({ ip, ok })));
+        const checked = await Promise.all(probe);
+        const alive = checked.filter(c => c.ok).map(c => c.ip);
+        const rest = fillIPs.slice(probeCount);
+        fillIPs = [...alive, ...rest].slice(0, left);
+      }
+      let fi = 0;
       for (const ip of fillIPs) {
         if (nodes.length >= cap) break;
         fi++;
-        pushFill(ip, 443, '优选IP-' + String(fi).padStart(3, '0'));
+        const hp = HTTP_PORTS_LIST[hashStr(String(ip)) % HTTP_PORTS_LIST.length];
+        const tp = TLS_PORTS[Math.floor(Math.random() * TLS_PORTS.length)];
+        if (!cfg.tlsOnly && nodes.length < cap) nodes.push(vlessNode(rc, ip, hp, '优选IP-' + String(fi).padStart(3, '0') + '-' + hp));
+        if (nodes.length >= cap) break;
+        nodes.push(vlessNode(rc, ip, tp, '优选IP-' + String(fi).padStart(3, '0')));
       }
     }
   }
@@ -3734,7 +3715,7 @@ a:hover{text-decoration:underline}
 .kv:last-child{border-bottom:none}
 .kv .k{color:var(--dim);white-space:nowrap}
 .kv .v{text-align:right;word-break:break-all;font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
-.kv .v.ok{color:var(--ok)}.kv .v.bad{color:var(--err)}.kv .v.warn{color:var(--warn)}
+.kv .v.ok{color:var(--ok)}.kv .v.bad{color:var(--err)}
 
 /* ===== 表单 ===== */
 .field{margin-bottom:12px}
@@ -3875,9 +3856,9 @@ pre.code{background:var(--bg2);border:1px solid var(--border);border-radius:8px;
       <div class="card">
         <h3><span class="tick"></span>快速开始</h3>
         <ol class="steps">
-          <li><b>部署即用</b>：绑定域名后客户端订阅即可获得海量节点（内置 300 条优选 IP 与地区域名源），默认已配好大陆直连分流（大陆应用、微软、苹果直连，国外服务走代理）。</li>
-          <li><b>调优节点</b>：在「优选配置」在线测速，把最优 IP 加入优选列表（自定义订阅模式内置常用订阅源，可自行增删，可追加内置优选池与默认节点）。</li>
-          <li><b>保障额度</b>：在「配额安全」开启用量监控与自动调节，防止免费额度超支（需在面板设置中配置 Cloudflare 账户 ID 与 API 令牌）。</li>
+          <li><b>部署即用</b>：绑定域名后客户端订阅即可获得海量节点（内置 300 条优选 IP 与地区域名源）。</li>
+          <li><b>调优节点</b>：在「优选配置」在线测速，把最优 IP 加入优选列表（需开启自定义订阅模式，该模式内置六条常用订阅源，可自行增删）。</li>
+          <li><b>保障额度</b>：在「配额安全」开启用量监控与自动调节，防止免费额度超支（需在面板设置中配置Cloudflare账户ID及API 令牌）。</li>
         </ol>
       </div>
       <div class="card">
@@ -3980,8 +3961,8 @@ pre.code{background:var(--bg2);border:1px solid var(--border);border-radius:8px;
 
     <!-- ===== 视图：节点配置（协议 / TLS / ECH / 落地出站） ===== -->
     <section class="view" data-view="nodes">
-      <div class="view-head"><h2>节点配置</h2><p>代理协议、TLS/ECH、节点测活与落地出站（保存后立即生效）</p></div>
-      <div class="grid3">
+      <div class="view-head"><h2>节点配置</h2><p>代理协议、TLS/ECH 与落地出站（保存后立即生效）</p></div>
+      <div class="grid2">
         <div class="card">
           <h3><span class="tick"></span>协议开关</h3>
           <div class="proto-row"><label class="switch"><input type="checkbox" id="en-vless" checked><span class="sl"></span></label><span>VLESS 协议（默认开启）</span></div>
@@ -3994,11 +3975,6 @@ pre.code{background:var(--bg2);border:1px solid var(--border);border-radius:8px;
           <div class="proto-row"><label class="switch"><input type="checkbox" id="tls-only"><span class="sl"></span></label><span>仅 TLS 端口（跳过 80/8080 等明文端口）</span></div>
           <div class="field" style="margin-top:12px"><label>ALPN 协商（h2 / http/1.1，逗号分隔）</label><input type="text" id="alpn" placeholder="留空自动，如 h2,http/1.1" autocomplete="off"></div>
           <p class="hint">明文端口节点（80/8080/8880/2052/2082/2086/2095）在开启「仅 TLS」后将从订阅中剔除。</p>
-        </div>
-        <div class="card">
-          <h3><span class="tick"></span>节点测活</h3>
-          <div class="proto-row"><label class="switch"><input type="checkbox" id="q-probe-on"><span class="sl"></span></label><span>节点测活（TCP 探测）</span></div>
-          <p class="hint" style="margin-top:12px">关闭：不做任何 TCP 握手 / HTTP 探测与剔除，节点的下发策略、出入站方式、ProxyIP 等节点相关均按 V1.x版本处理方式处理——按数据源原始顺序全量下发，客户端自行择优。<br>开启：对候选地址做 TCP 探测并剔除判死项（含精选池 / 优选 IP / 域名预检 / ProxyIP 兜底），但 Cloudflare 运行时禁止出站连接 CF IP 段，对 CF 段 IP 的探测恒判死，内置精选池（实测 97% 可用）会被整体清空，订阅只能用随机 CF IP 补足，自定义订阅 / 随机优选模式不测活。</p>
         </div>
       </div>
       <div class="card">
@@ -4148,15 +4124,15 @@ pre.code{background:var(--bg2);border:1px solid var(--border);border-radius:8px;
         <div class="card">
           <h3><span class="tick"></span>轮询换新</h3>
           <div class="proto-row"><label class="switch"><input type="checkbox" id="q-poll-on"><span class="sl"></span></label><span>启用轮询（默认关闭）</span></div>
-          <p class="hint" style="margin-top:12px">默认关闭：一次性下发全部节点，不受 300/800 上限限制；开启后按格式上限轮换下发新 IP（200 条去重窗口，避免重复下发）；端口固定 443（1.0.6 机制），换新通过 IP 轮换实现。</p>
+          <p class="hint" style="margin-top:12px">默认关闭：一次性下发全部节点，不受 300/800 上限限制；开启后按格式上限轮换下发新 IP（200 条去重窗口，避免重复下发），TLS 端口随每次订阅刷新随机换新。</p>
         </div>
       </div>
       <div class="card">
         <h3><span class="tick"></span>当前下发策略</h3>
         <div class="grid3">
           <div class="field" style="margin:0"><div class="kv"><span class="k">节点数量控制</span><span class="v" id="qNl">—</span></div><div class="kv"><span class="k">精确节点上限</span><span class="v" id="qNlCount">—</span></div></div>
-          <div class="field" style="margin:0"><div class="kv"><span class="k">节点测活</span><span class="v" id="qProbe">—</span></div><div class="kv"><span class="k">轮询换新机制</span><span class="v" id="qPoll">—</span></div></div>
-          <div class="field" style="margin:0"><div class="kv"><span class="k">行式格式上限</span><span class="v">800 节点</span></div><div class="kv"><span class="k">结构化格式上限</span><span class="v">300 节点</span></div></div>
+          <div class="field" style="margin:0"><div class="kv"><span class="k">轮询换新机制</span><span class="v" id="qPoll">—</span></div><div class="kv"><span class="k">结构化格式上限</span><span class="v">300 节点</span></div></div>
+          <div class="field" style="margin:0"><div class="kv"><span class="k">行式格式上限</span><span class="v">800 节点</span></div><div class="kv"><span class="k">严格封顶 / 去重窗口</span><span class="v">1,000 / 200 条</span></div></div>
         </div>
         <p class="hint" style="margin-top:10px">每次订阅请求都会消耗 Worker 的 CPU 时间（免费计划 10ms/请求）。面板按「免费额度 → 格式 → 节点数」逐层设防，保证稳定运行。</p>
       </div>
@@ -4237,7 +4213,6 @@ pre.code{background:var(--bg2);border:1px solid var(--border);border-radius:8px;
             <tr><td>MetaCubeX/meta-rules-dat</td><td><a href="https://github.com/MetaCubeX/meta-rules-dat" target="_blank" rel="noopener">github.com/MetaCubeX/meta-rules-dat</a></td></tr>
             <tr><td>666OS/rules</td><td><a href="https://github.com/666OS/rules" target="_blank" rel="noopener">github.com/666OS/rules</a></td></tr>
             <tr><td>DustinWin/ruleset_geodata</td><td><a href="https://github.com/DustinWin/ruleset_geodata" target="_blank" rel="noopener">github.com/DustinWin/ruleset_geodata</a></td></tr>
-            <tr><td>blackmatrix7/ios_rule_script</td><td><a href="https://github.com/blackmatrix7/ios_rule_script" target="_blank" rel="noopener">github.com/blackmatrix7/ios_rule_script</a></td></tr>
             <tr><td>TG-Twilight/AWAvenue-Ads-Rule</td><td><a href="https://github.com/TG-Twilight/AWAvenue-Ads-Rule" target="_blank" rel="noopener">github.com/TG-Twilight/AWAvenue-Ads-Rule</a></td></tr>
             <tr><td>Koolson/Qure</td><td><a href="https://github.com/Koolson/Qure" target="_blank" rel="noopener">github.com/Koolson/Qure</a></td></tr>
           </tbody>
@@ -4518,10 +4493,6 @@ function renderQuota(){
   var po = !(CFG && CFG.polling === false);
   $('qPoll').textContent = po ? '已开启（每轮换新 IP）' : '关闭（每次下发全部）';
   $('qPoll').className = 'v ' + (po ? 'ok' : '');
-  // 节点测活：开启 = 红字提醒（会误杀 CF 段精选池），关闭 = 绿字（推荐状态，对齐 V1.0.6）
-  var pa = !!(CFG && CFG.probeAlive);
-  $('qProbe').textContent = pa ? '已开启（剔除死节点，体感更快）' : '关闭（不测活，按 V1.x 原序下发）';
-  $('qProbe').className = 'v ' + (pa ? 'warn' : 'ok');
 }
 function fmtNum(n){
   if (n == null || isNaN(n)) return '—';
@@ -4659,7 +4630,6 @@ function fillForm(){
   $('q-nl-on').checked = !!CFG.nodeLimit;
   $('q-nl-count').value = CFG.nodeLimitCount || 500;
   $('q-poll-on').checked = CFG.polling !== false;
-  $('q-probe-on').checked = !!CFG.probeAlive;
   $('q-auto-on').checked = !!CFG.quotaAuto;
   $('a-uuid').value = CFG.uuid || '';
   $('a-path').value = CFG.path || '';
@@ -4722,7 +4692,6 @@ function collectForm(){
     nodeLimit: $('q-nl-on').checked,
     nodeLimitCount: parseInt($('q-nl-count').value) || 500,
     polling: $('q-poll-on').checked,
-    probeAlive: $('q-probe-on').checked,
     cfAccountId: $('a-cfid').value.trim(),
     cfApiToken: $('a-cftoken').value.trim(),
     quotaAuto: $('q-auto-on').checked,
