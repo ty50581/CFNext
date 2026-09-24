@@ -2060,18 +2060,16 @@ async function handleXhttpProxy(request, cfg) {
 // 优选器：候选提取（txt / HTML 多源）+ TCP 延迟测试
 // ---------------------------------------------------------------------------
 // 从任意数据源文本提取 IP 候选（兼容 txt 行式、HTML 表格、JSON 文本；仅保留合法 IPv4/IPv6）
-// 内容解码：优先 UTF-8（无 U+FFFD 判定），否则按 GBK 解码（对齐 edgetunnel 请求优选API 的编码检测；
+// 内容解码：优先 UTF-8（fatal 严格解码），否则按 GBK 解码（对齐 edgetunnel 请求优选API 的编码检测；
 // 国内优选 API 常返回 GB2312/GBK 编码，直接 text() 会乱码导致解析不到 IP）
+// 重要：不使用 U+FFFD 替换符字符串字面量判定（该转义会被部分混淆器改写为空格，导致 UTF-8 源被误判 GBK 而乱码），
+// 改用 TextDecoder('utf-8', { fatal: true }) 严格解码：非法字节直接抛错才落入 GBK 兜底，混淆后行为不变
 function decodeUtf8OrGbk(buf) {
   const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
   try {
-    const utf8 = new TextDecoder('utf-8').decode(bytes);
-    // 修复：以 U+FFFD（替换符）判定有效 UTF-8，而非「不含空格」。
-    // 原判定导致 bestcf 等含空格行式的 UTF-8 源被误判为 GBK，UTF-8 中文被 GBK 解码成乱码
-    // （如 香港 → 棣欐腐、美国 → 缇庡浗）；GBK 源按 UTF-8 解码必产生替换符，判定依旧准确
-    if (!utf8.includes('\uFFFD')) return utf8;
-  } catch (e) { /* 继续尝试 GBK */ }
-  try { return new TextDecoder('gbk').decode(bytes); } catch (e) { /* 兜底 */ }
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch (e) { /* 非 UTF-8（GB2312/GBK 等）→ 尝试 GBK */ }
+  try { return new TextDecoder('gbk').decode(bytes); } catch (e2) { /* 兜底 */ }
   return new TextDecoder().decode(bytes);
 }
 
