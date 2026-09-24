@@ -539,8 +539,9 @@ const DEFAULT_CONFIG = {
                         //   开启：对候选地址做 TCP 握手/HTTP 探测并剔除判死项，
                         //   含精选池/优选 IP/域名预检/ProxyIP 兜底各环节的测活剔除（自定义订阅 / 随机优选模式除外：不进行测活）。
                         //   注意：Cloudflare 运行时禁止出站连接 CF IP 段（官方文档：Outbound TCP sockets to
-                        //   Cloudflare IP ranges are blocked），因此对 CF 段 IP 的探测恒失败 → 精选池会被整体判死、
-                        //   订阅被迫用随机 CF IP 补足（客户端可达率仅 28-45%，而精选池实测 97%）。可用环境变量 PROBE_ALIVE=0 覆盖关闭
+                        //   Cloudflare IP ranges are blocked），因此对 CF 段 IP 跳过 TCP 探测、直接视为可用——
+                        //   精选池（实测 97% 可用）不会被误判清空，仅对非 CF 段（反代/ProxyIP）真实测活剔除死节点。
+                        //   可用环境变量 PROBE_ALIVE=0 覆盖关闭
   // 配额安全（账户监控）：填写 CF 账户 ID 与 API 令牌后，面板可查询当日用量并按需自动收缩节点上限
   cfAccountId: '',      // CF 账户监控：账户 ID（Account Tag），留空则监控关闭；可用环境变量 CF_ACCOUNT_ID 覆盖
   cfApiToken: '',       // CF 账户监控：API 令牌（需 Workers 用量分析读取权限），可用环境变量 CF_API_TOKEN 覆盖
@@ -3190,6 +3191,9 @@ async function probeAll(items, fn) {
 // ProxyIP 可用性检测：TCP 连通测试（参考 TunnelBoard 测活思路，独立实现），2 秒超时
 async function testProxyAlive(server, port, timeoutMs) {
   if (!PROBE_ALIVE_ENABLED) return true;   // 测活关闭：不剔除
+  // Cloudflare 运行时禁止出站连接 CF IP 段：对 CF 段 IP 的 TCP 探测恒失败，跳过探测视为可用，
+  // 避免精选池（实测 97% 可用）被整体判死清空、订阅被迫用随机 CF IP 补足（客户端可达率仅 28-45%）
+  if (isCloudflareIP(server)) return true;
   const ms = timeoutMs || 2000;
   try {
     const conn = connect({ hostname: server, port: port });
@@ -3998,7 +4002,7 @@ pre.code{background:var(--bg2);border:1px solid var(--border);border-radius:8px;
         <div class="card">
           <h3><span class="tick"></span>节点测活</h3>
           <div class="proto-row"><label class="switch"><input type="checkbox" id="q-probe-on"><span class="sl"></span></label><span>节点测活（TCP 探测）</span></div>
-          <p class="hint" style="margin-top:12px">关闭：不做任何 TCP 握手 / HTTP 探测与剔除，节点的下发策略、出入站方式、ProxyIP 等节点相关均按 V1.x版本处理方式处理——按数据源原始顺序全量下发，客户端自行择优。<br>开启：对候选地址做 TCP 探测并剔除判死项（含精选池 / 优选 IP / 域名预检 / ProxyIP 兜底），但 Cloudflare 运行时禁止出站连接 CF IP 段，对 CF 段 IP 的探测恒判死，内置精选池（实测 97% 可用）会被整体清空，订阅只能用随机 CF IP 补足，自定义订阅 / 随机优选模式不测活。</p>
+          <p class="hint" style="margin-top:12px">关闭：不做任何 TCP 握手 / HTTP 探测与剔除，节点的下发策略、出入站方式、ProxyIP 等节点相关均按 V1.x版本处理方式处理——按数据源原始顺序全量下发，客户端自行择优。<br>开启：对候选地址做 TCP 探测并剔除判死项（含精选池 / 优选 IP / 域名预检 / ProxyIP 兜底）；Cloudflare 运行时禁止出站连接 CF IP 段，故对 CF 段 IP 跳过探测、直接视为可用（内置精选池实测 97% 可用，不会被误判清空），仅对非 CF 段（反代 / ProxyIP）真实测活剔除死节点。自定义订阅 / 随机优选模式不测活。</p>
         </div>
       </div>
       <div class="card">
