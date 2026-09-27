@@ -5,6 +5,18 @@
 > **[Telegram 交流群](https://t.me/SZ_PAI)**　**[YouTube 频道](https://www.youtube.com/@PAI_CN)**
 
 ---
+# 更新日志  _V2.1.0
+
+### ✨ 更新内容
+- 新增首次(重置KV)登录需强制设置登录密码，对应面板设置管理密码（留空则面板免登录）选项;
+- 新增负载均衡（默认开启），每次订阅请求对节点顺序做随机轮换（Fisher-Yates），客户端连接分散到整批节点，避免全部集中踩同一批头部「最优 IP」导致拥塞变慢；关闭则保持固定顺序（头部为最稳节点），位于「节点配置」选项中；
+### 🐛 BUG 处理
+1.修复2.0版本下发的配置文件在SingBox客户端无法启动的两处问题，
+- 开启多协议后节点名称出现重复，SingBox客户端配置要求不能出现重复名称，更新重命名协议，Vless→无，Trojian→XX.T，Xhttp→XX.X；
+- SingBox客户端启动时要下载 GeoIP/GeoSite 规则集，testingcf.jsdelivr.net`在国内连不上 → 5 个规则集全部 context deadline exceeded 超时 → 客户端 FATAL 退出。SingBox配置文件回归1.0.6的极简形态；
+
+
+---
 
  # 更新日志 _V2.0
 

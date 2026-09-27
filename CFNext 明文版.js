@@ -5,7 +5,8 @@
 //  环境变量：
 //    U            VLESS UUID（必填，同时用作面板访问路径，除非设置了 D）
 //    D / PATH     自定义面板路径（可选）
-//    ADMIN        面板管理密码（可选，设置后访问面板需登录）
+//    ADMIN        面板管理密码（可选，设置后访问面板需登录；未设置且 KV 从未写入配置时，
+//                 首次访问面板将强制要求设置管理密码，设置完成后才可进入面板）
 //    HOST         自定义 SNI/Host（可选，默认使用 Worker 域名）
 //    PROXYIP      自定义反代/落地 IP（可选，填写后作为固定出口优先使用；留空则直连失败时由内置地区反代兜底，格式 host 或 host:port）
 //    S / OUTBOUND 出站代理（可选，socks5:// / http:// / ss:// 或 host:port）
@@ -23,7 +24,7 @@
 // ============================================================================
 import { connect } from 'cloudflare:sockets';
 
-const VERSION = '2.0.0';
+const VERSION = '2.1.0';
 
 // 部署形态标注（手动维护）：明文版部署保持「明文版」；生成混淆版部署前，请将下方标注手动改为「混淆版」。
 // 更新检测时：统一以仓库「CFNext 明文版.js」的版本号为比对基准（明文与混淆同步发布同一版本号），
@@ -516,6 +517,7 @@ const DEFAULT_CONFIG = {
   uuid: '',
   path: '',            // 自定义路径，留空用 UUID
   admin: '',
+  adminInit: false,    // 管理密码是否已完成首次初始化（KV 首次写入配置或设置过密码后为 true；为空且 false 时强制首次设置）
   host: '',
   // 协议开关
   enableVless: true,
@@ -531,8 +533,9 @@ const DEFAULT_CONFIG = {
   nodeLimit: true,      // 节点数量控制：默认开启，按 nodeLimitCount 精确限制节点总数
   nodeLimitCount: 500,  // 开启节点数量控制后，最多下发的节点数（默认 500）
   polling: false,       // 轮询机制：开启后每次更新订阅轮询下发新节点（KV issued 去重 + 数量限制），关闭后忽略轮询与限制、下发全部节点
-  probeAlive: false,    // ★ 节点测活（TCP 探测）总开关：默认关闭（推荐，对齐 V1.0.6）——订阅不做任何 TCP 握手/HTTP 探测与剔除，
-                        //   按数据源原始顺序全量下发、客户端自行择优（秒回，v2rayNG/AsteriskNG 刷新正常）；面板开启或 PROBE_ALIVE=1 强制开启。
+  loadBalance: true,    // 负载均衡：每次订阅请求对下发节点顺序做随机轮换（Fisher-Yates 打乱），分散客户端连接、避免头部节点拥塞变慢；关闭则保持原有固定顺序
+  probeAlive: true,     // ★ 节点测活（TCP 探测）总开关：默认开启——恢复 2.0 第四版「下发前剔除死节点」策略，订阅请求对候选地址做 TCP 握手/HTTP 探测、
+                        //   剔除判死项后再下发；若首次刷新偏慢（域名预检+测活约 10-40 秒、v2rayNG 可能 30 秒超时），可面板关闭或 PROBE_ALIVE=0 强制关闭。
                         //   节点形态：所有模式统一按 1.0.6 机制——端口原样单端口下发（固定 443、不随机 TLS 端口、不追加明文端口变体）。
                         //   关闭：所有测活函数直接放行，不做任何 TCP 握手/HTTP 探测与剔除——节点的下发策略、出入站方式、
                         //   ProxyIP 等节点相关均按 V1.x 处理：按数据源原始顺序（bestcf 地区池行序 = 质量序）全量下发，客户端自行择优；
@@ -980,9 +983,33 @@ async function kvGetConfigCached(env) {
 }
 function invalidateConfigCache() { /* 内存缓存已移除；KV 边缘缓存 30s 自然过期 */ }
 
+// ★ 首次初始化池（KV 独立键 initPool）：全新 KV 部署的「部署即有 300+ 节点」初始化结果落 KV，
+// 6h 窗口内复用，避免每次订阅请求重复最多 250 次 TCP 探测；独立键不写入 config，不污染面板手动保存的 preferredIPs
+const INIT_POOL_TTL = 6 * 60 * 60 * 1000;   // 初始化池复用窗口：6 小时
+async function kvGetInitPool(env) {
+  if (!env || !env.K || typeof env.K.get !== 'function') return null;
+  try {
+    const raw = await env.K.get('initPool');
+    if (!raw) return null;
+    const j = JSON.parse(raw);
+    if (!j || !Array.isArray(j.ips) || !j.ips.length) return null;
+    if (Date.now() - (j.at || 0) > INIT_POOL_TTL) return null;   // 过期视作未命中，重探测
+    return j.ips;
+  } catch (e) { return null; }
+}
+async function kvPutInitPool(env, ips) {
+  if (!env || !env.K || typeof env.K.put !== 'function') return;
+  try {
+    const list = (ips || []).filter(x => x && x.ip).map(x => ({ ip: x.ip, port: x.port || 443, name: x.name || '', relay: !!x.relay })).slice(0, 250);
+    if (!list.length) return;   // 本次未拉到任何节点（网络失败/探测全死）不落池，避免空池反复覆盖
+    await env.K.put('initPool', JSON.stringify({ at: Date.now(), ips: list }));
+  } catch (e) { /* 写失败回退现状（每次重探测） */ }
+}
+
 async function loadConfig(env) {
   const cfg = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
   let kvQuotaSet = false;   // KV 是否显式设置过 quotaAuto（用于自动调节默认值联动）
+  let kvHasConfig = false;  // KV 是否已写入过面板配置（用于首次部署判定：从未写入 → 首次访问强制设置管理密码）
   // 环境变量
   if (env.U) cfg.uuid = String(env.U).toLowerCase();
   if (env.D || env.PATH) cfg.path = String(env.D || env.PATH);
@@ -1005,6 +1032,7 @@ async function loadConfig(env) {
       const kvJson = await kvGetConfigCached(env);
       if (kvJson) {
         const kvCfg = JSON.parse(kvJson);
+        kvHasConfig = true;   // KV 中已存在配置（含历史免登录部署）→ 视为已初始化
         if (kvCfg.quotaAuto !== undefined) kvQuotaSet = true;
         Object.assign(cfg, kvCfg);
         if (kvCfg.optimizer) cfg.optimizer = Object.assign(JSON.parse(JSON.stringify(DEFAULT_CONFIG.optimizer)), kvCfg.optimizer);
@@ -1014,6 +1042,9 @@ async function loadConfig(env) {
       }
     } catch (e) { /* KV 读取失败忽略 */ }
   }
+  // 首次部署判定：管理密码为空时，仅当 KV 从未写入过配置（或从未设置过密码）才强制首次设置；
+  // 已有 KV 配置 / 曾设置过密码 / 未绑定 KV → 视为已初始化，保留「留空则面板免登录」原语义
+  cfg.adminInit = !!(cfg.adminInit || kvHasConfig);
   // 清理已废弃字段（fragment 分片功能已移除，避免 KV 残留字段混入配置）
   delete cfg.fragment;
   delete cfg.fragmentParam;
@@ -1960,6 +1991,9 @@ async function handleWebSocketProxy(request, cfg) {
       if (!headerSent) {
         // 累积缓冲：Workers 端 WS 消息可能分片到达，不足头部长度时等待后续数据
         pending = pending ? concatBytes(pending, chunk) : chunk;
+        // ★ 握手头缓冲上限（64KB）：正常 VLESS/Trojan 握手头仅数十字节，第二个分片即完成解析并清空缓冲；
+        // 仅当客户端持续发送不完整分片（异常/恶意）时累积，超限断开连接，防内存无限膨胀
+        if (pending.byteLength > 65536) throw new Error('握手头超过 64KB，关闭连接');
         let parsed, isVless;
         try {
           // Trojan 判定：客户端发送 SHA224(密码) 的 56 字节 hex + CRLF；密码与节点生成同源（留空用 UUID）
@@ -2255,6 +2289,14 @@ function xhttpPadding(cfg) {
 // （如 香港 → 棣欐腐、台湾 → 鋆版咕）；原样中文走明文 UTF-8，GBK/UTF-8 解码客户端均正常显示。
 function uriFragName(name) {
   return String(name).replace(/%/g, '%25').replace(/#/g, '%23').replace(/\?/g, '%3F').replace(/ /g, '%20');
+}
+
+// ★ 多协议命名备注：同一地址同时开启多协议时，Trojan 名称追加 .T、XHTTP 追加 .X（VLESS 不备注，保持原名），
+// 既让客户端一眼识别协议，也天然避免 sing-box outbound tag 重复（duplicate tag 报错）
+function protoNames(name, enV, enT, enX) {
+  const cnt = (enV ? 1 : 0) + (enT ? 1 : 0) + (enX ? 1 : 0);
+  if (cnt <= 1) return { v: name, t: name, x: name };
+  return { v: name, t: name + '.T', x: name + '.X' };
 }
 
 function vlessNode(cfg, server, port, name, extra = {}) {
@@ -2572,7 +2614,8 @@ async function buildNodes(cfg, cap = 800, skipSet = null) {
     // 入口 IP 硬性要求：非 CF 段 IP 无法转发到 Worker，直接丢弃；
     // 例外：bestcf 地区优选池的社区中转 IP（trusted 标记）可用作客户端入口（v1.0.5 修复）
     if (isValidIp(server) && !isCloudflareIP(server) && !allowNonCF && !trusted) return;
-    const key = server + ':' + port;   // 按 服务器:端口 去重（单端口机制：同 IP 同端口仅下发一次）
+    // ★ 动态下发逻辑：probeAlive=开启 → 2.0 第四版（同 IP 不同端口各自保留）；关闭 → 1.0.6（同 IP 只留一条）
+    const key = cfg.probeAlive ? (server + ':' + port) : server;
     if (used.has(key)) return;
     used.add(key);
     const isTls = !HTTP_PORTS.has(Number(port));
@@ -2580,9 +2623,11 @@ async function buildNodes(cfg, cap = 800, skipSet = null) {
     // 节点端口统一按 1.0.6 机制（方案 B）：端口原样下发（默认/自定义/随机优选均固定源端口，通常是 443），
     // 不做 TLS 端口随机（443 全域可达性最佳），也不追加明文端口变体
     const finalPort = Number(port);
-    if (cfg.enableVless) nodes.push(vlessNode(cfg, server, finalPort, name));
-    if (cfg.enableTrojan) nodes.push(trojanNode(cfg, server, isTls ? finalPort : Number(port), name));  // Trojan 明文/TLS 端口均下发
-    if (cfg.enableXhttp && isTls) nodes.push(vlessNode(cfg, server, finalPort, name, { type: 'xhttp' }));  // XHTTP 仅 TLS 端口
+    // ★ 多协议命名备注：同一地址开启多协议时 Trojan 加 .T、XHTTP 加 .X（VLESS 不备注，保持原名）
+    const nmP = protoNames(name, !!cfg.enableVless, !!cfg.enableTrojan, !!(cfg.enableXhttp && isTls));
+    if (cfg.enableVless) nodes.push(vlessNode(cfg, server, finalPort, nmP.v));
+    if (cfg.enableTrojan && (cfg.probeAlive || isTls)) nodes.push(trojanNode(cfg, server, isTls ? finalPort : Number(port), nmP.t));  // 测活开=明文/TLS 均下发（2.0 第四版）；关=仅 TLS（1.0.6）
+    if (cfg.enableXhttp && isTls) nodes.push(vlessNode(cfg, server, finalPort, nmP.x, { type: 'xhttp' }));  // XHTTP 仅 TLS 端口
   };
   // 单端口下发（1.0.6 机制，方案 B）：每个地址按源端口（通常 443）单条下发，不追加明文端口变体
   const multiPort = (server, port, name, trusted) => {
@@ -2609,11 +2654,13 @@ async function buildNodes(cfg, cap = 800, skipSet = null) {
     for (const ip of randIPs) {
       if (made >= n) break;
       // 随机优选模式：按 1.0.6 机制——每个 IP 每协议仅固定 443 单端口下发，不随机 TLS 端口、不追加明文端口变体
-      if (cfg.enableVless) { nodes.push(vlessNode(cfg, ip, 443, '优选IP-' + String(made + 1).padStart(2, '0'))); made++; }
+      const baseNm = '优选IP-' + String(made + 1).padStart(2, '0');
+      const nmP = protoNames(baseNm, !!cfg.enableVless, !!cfg.enableTrojan, !!cfg.enableXhttp);
+      if (cfg.enableVless) { nodes.push(vlessNode(cfg, ip, 443, nmP.v)); made++; }
       if (made >= n) break;
-      if (cfg.enableTrojan) { nodes.push(trojanNode(cfg, ip, 443, '优选IP-' + String(made + 1).padStart(2, '0'))); made++; }
+      if (cfg.enableTrojan) { nodes.push(trojanNode(cfg, ip, 443, nmP.t)); made++; }
       if (made >= n) break;
-      if (cfg.enableXhttp) { nodes.push(vlessNode(cfg, ip, 443, '优选IP-' + String(made + 1).padStart(2, '0'), { type: 'xhttp' })); made++; }
+      if (cfg.enableXhttp) { nodes.push(vlessNode(cfg, ip, 443, nmP.x, { type: 'xhttp' })); made++; }
     }
     return nodes;
   }
@@ -2948,9 +2995,16 @@ FINAL,🐟 漏网之鱼
 function generateSingbox(cfg, nodes) {
   const host = cfg.host;
   const path = '/' + cfg.path;
+  // ★ outbound tag 唯一化：同一节点名可能因多协议（VLESS/Trojan/XHTTP 共用同一 name）或数据源撞名而重复，
+  // sing-box 要求 outbound tag 全局唯一，重复会报 "duplicate outbound/endpoint tag: XXX" 导致客户端启动失败
+  const usedTags = new Map();
   const outbounds = nodes.map((n, i) => {
     const { user, srv, prt, name, isTrojan, tls } = parseShareNode(n, i);
     const type = getParam(n, 'type') || 'ws';
+    const baseTag = name || ('节点-' + (i + 1));
+    const tc = (usedTags.get(baseTag) || 0) + 1;
+    usedTags.set(baseTag, tc);
+    const tag = (tc === 1) ? baseTag : (baseTag + '-' + tc);   // 重复名追加序号，保证 tag 唯一
     // XHTTP 在 sing-box 中不支持 uTLS（官方限制，xhttp+utls 会导致 outbound 异常/流量不通），xhttp 模式禁用 utls
     // insecure/alpn：CF 优选 IP 场景 server 为 Anycast IP（证书为域名证书无 IP SAN）须跳过校验；
     // 强制 HTTP/1.1 ALPN 避免 CF 边缘协商 h2 导致 WS 升级失败（v1.0.5 修复）
@@ -2968,83 +3022,44 @@ function generateSingbox(cfg, nodes) {
       } : { type: 'ws', path, headers: { Host: host } });
     if (isTrojan) {
       return {
-        type: 'trojan', tag: name, server: srv, server_port: prt,
+        type: 'trojan', tag, server: srv, server_port: prt,
         password: user, tls: tlsObj,
         transport
       };
     }
     return {
-      type: 'vless', tag: name, server: srv, server_port: prt,
+      type: 'vless', tag, server: srv, server_port: prt,
       uuid: user, packet_encoding: 'xudp',
       tls: tlsObj,
       transport
     };
   });
   const tags = outbounds.map(o => o.tag);
-  // rule_set 分流（参考 CFNext sing-box 生成）：远程规则集（MetaCubeX .list 文本格式）+ 主流分流域名
-  const RULE_SETS = [
-    ['geosite-cn', '🎯 全球直连'], ['geosite-google', '🌐 谷歌服务'], ['geosite-apple', '🍎 苹果服务'],
-    ['geosite-microsoft', 'Ⓜ️ 微软服务'], ['geosite-openai', '🤖 OpenAI'], ['geosite-spotify', '🌍 国外媒体'],
-    ['geosite-youtube', '🌍 国外媒体'], ['geosite-netflix', '🌍 国外媒体'], ['geosite-disney', '🌍 国外媒体'],
-    ['geosite-twitter', '🌍 国外媒体'], ['geosite-telegram', '🌍 国外媒体'], ['geosite-github', '🌍 国外媒体'],
-    ['geosite-category-ads-all', 'block']
-  ];
+  // 精简 sing-box 模板（对齐 1.0.6 实测可用形态，规避两类客户端致命错误）：
+  //  1) 仅 mixed 入站，不用 tun/sniff —— sing-box 1.11+ 弃用 inbound 旧字段 sniff/sniff_override_destination（1.13+ 移除），
+  //     tun 还需系统权限，普通客户端直接 decode 失败
+  //  2) 不使用远程 rule_set —— raw.githubusercontent.com / testingcf.jsdelivr.net 国内常超时，
+  //     客户端启动下载规则集 context deadline exceeded → FATAL
+  //  3) DNS 用国内公共 DNS，不依赖远程 DoH 走代理
   const config = {
     log: { level: 'info' },
-    // 完整 DNS + fakeip：远程 DoH 解析（走代理）+ 本地直连 DNS 兜底；fakeip 加速分流
-    dns: {
-      servers: [
-        { tag: 'dns-remote', address: 'https://1.1.1.1/dns-query' },
-        { tag: 'dns-direct', address: 'udp://223.5.5.5' }
-      ],
-      strategy: 'ipv4_only',
-      independent_cache: true,
-      fakeip: { enabled: true, inet4_range: '198.18.0.0/15', store_fakeip: true }
-    },
+    dns: { servers: [{ address: '223.5.5.5' }, { address: '119.29.29.29' }] },
     inbounds: [
-      {
-        type: 'mixed', tag: 'mixed-in', listen: '127.0.0.1', listen_port: 2080,
-        sniff: true, sniff_override_destination: true
-      },
-      {
-        type: 'tun', tag: 'tun-in', interface_name: 'tun0',
-        inet4_address: ['172.19.0.1/30'], mtu: 9000,
-        auto_route: true, strict_route: true, stack: 'mixed',
-        sniff: true, sniff_override_destination: true
-      }
+      { type: 'mixed', tag: 'mixed-in', listen: '127.0.0.1', listen_port: 2080 }
     ],
     outbounds: [
       ...outbounds,
       { type: 'direct', tag: 'direct' },
       { type: 'block', tag: 'block' },
-      { type: 'dns', tag: 'dns-out' },
       { type: 'selector', tag: '🚀 节点选择', outbounds: tags },
       { type: 'selector', tag: '🎯 全球直连', outbounds: ['direct'] },
-      { type: 'selector', tag: '🐟 漏网之鱼', outbounds: ['🚀 节点选择', '🎯 全球直连'] },
-      { type: 'selector', tag: '🌍 国外媒体', outbounds: ['🚀 节点选择'] },
-      { type: 'selector', tag: '🌐 谷歌服务', outbounds: ['🚀 节点选择'] },
-      { type: 'selector', tag: '🤖 OpenAI', outbounds: ['🚀 节点选择'] },
-      { type: 'selector', tag: '🍎 苹果服务', outbounds: ['🎯 全球直连'] },
-      { type: 'selector', tag: 'Ⓜ️ 微软服务', outbounds: ['🎯 全球直连'] }
+      { type: 'selector', tag: '🐟 漏网之鱼', outbounds: ['🚀 节点选择', '🎯 全球直连'] }
     ],
     route: {
       rules: [
-        { protocol: 'dns', outbound: 'dns-out' },
-        { ip_is_private: true, outbound: 'direct' },
-        ...RULE_SETS.map(([rs, out]) => ({ rule_set: [rs], outbound: out })),
-        { geoip: ['cn'], outbound: 'direct' },   // 大陆 IP 兜底直连（覆盖未收录域名 / 纯 IP 连接的大陆应用）
-        { ip_is_private: true, outbound: 'block' }
-      ],
-      rule_set: RULE_SETS.map(([rs]) => ({
-        type: 'remote', tag: rs, format: 'source',
-        url: 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/' + rs + '.list'
-      })),
-      final: '🐟 漏网之鱼',
-      auto_detect_interface: true,
-      default_domain_resolver: { server: 'dns-remote' }
-    },
-    experimental: {
-      clash_api: { external_controller: '127.0.0.1:9090' }
+        { geoip: ['cn'], outbound: 'direct' },
+        { outbound: '🐟 漏网之鱼' }
+      ]
     }
   };
   return JSON.stringify(config, null, 2);
@@ -3292,12 +3307,13 @@ function appendStableNodes(nodes, rc, cap) {
     if (used.has(ip)) continue;
     used.add(ip);
     si++;
-    const nm = '内置·保底-' + String(si).padStart(2, '0');
-    if (rc.enableVless) nodes.push(vlessNode(rc, ip, 443, nm));
+    const baseNm = '内置·保底-' + String(si).padStart(2, '0');
+    const nmP = protoNames(baseNm, !!rc.enableVless, !!rc.enableTrojan, !!rc.enableXhttp);
+    if (rc.enableVless) nodes.push(vlessNode(rc, ip, 443, nmP.v));
     if (nodes.length >= cap) break;
-    if (rc.enableTrojan) nodes.push(trojanNode(rc, ip, 443, nm));
+    if (rc.enableTrojan) nodes.push(trojanNode(rc, ip, 443, nmP.t));
     if (nodes.length >= cap) break;
-    if (rc.enableXhttp) nodes.push(vlessNode(rc, ip, 443, nm, { type: 'xhttp' }));
+    if (rc.enableXhttp) nodes.push(vlessNode(rc, ip, 443, nmP.x, { type: 'xhttp' }));
   }
 }
 
@@ -3317,9 +3333,10 @@ function appendFallbackNodes(nodes, rc, cap, colo) {
     if (nodes.length >= cap) return;
     if (used.has(server)) return;
     used.add(server);
-    if (rc.enableVless) nodes.push(vlessNode(rc, server, 443, name));
-    if (rc.enableTrojan) nodes.push(trojanNode(rc, server, 443, name));
-    if (rc.enableXhttp) nodes.push(vlessNode(rc, server, 443, name, { type: 'xhttp' }));
+    const nmP = protoNames(name, !!rc.enableVless, !!rc.enableTrojan, !!rc.enableXhttp);
+    if (rc.enableVless) nodes.push(vlessNode(rc, server, 443, nmP.v));
+    if (rc.enableTrojan) nodes.push(trojanNode(rc, server, 443, nmP.t));
+    if (rc.enableXhttp) nodes.push(vlessNode(rc, server, 443, nmP.x, { type: 'xhttp' }));
   };
   // 原生地址：仅面板「原生地址」开关（src.native）开启时下发；默认关闭不下发
   if (rc.src && rc.src.native === true) {
@@ -3329,7 +3346,7 @@ function appendFallbackNodes(nodes, rc, cap, colo) {
 }
 
 // 根据 UA 或指定格式生成订阅
-async function generateSubscription(cfg, requestUrl, format, ua, colo) {
+async function generateSubscription(cfg, requestUrl, format, ua, colo, env) {
   // 兜底：path 为空或为 "/" 时一律回退 UUID（兼容 KV 残留旧值；Worker WS/xhttp 代理仅在 panelPath=cfg.path 处理）
   if (!cfg.path || cfg.path === '/' || cfg.path === '') cfg.path = cfg.uuid;
   // 筛选含 IPv6 时刷新官方 v6 网段（ips-v6，6 小时缓存节流；失败沿用内置/上次成功段）
@@ -3341,8 +3358,19 @@ async function generateSubscription(cfg, requestUrl, format, ua, colo) {
   // 修复：仅默认模式（订阅模式关闭）生效；自定义订阅/随机优选由用户配置决定节点来源，
   // 注入内置池会污染「仅自定义节点」语义并优先占满下发上限，导致自定义节点被截断未正常下发
   const _initSubMode = (cfg.optimizer && cfg.optimizer.subMode) || '';
-  if (_initSubMode === '' && (!cfg.preferredIPs || cfg.preferredIPs.length < 80)) {
+  if (_initSubMode === '' && cfg.probeAlive && (!cfg.preferredIPs || cfg.preferredIPs.length < 80)) {  // 测活关闭=1.0.6 逻辑，不预探测初始化池
+    // ★ 初始化池复用（KV 独立键 initPool，6h 窗口）：全新 KV 部署时避免每次订阅都重做 250 次探测
+    let poolHit = false;
     try {
+      const pool = await kvGetInitPool(env);
+      if (pool && pool.length) {
+        const seen0 = new Set((cfg.preferredIPs || []).map(x => x.ip));
+        const add0 = pool.filter(x => x && x.ip && !seen0.has(x.ip));
+        if (add0.length) cfg.preferredIPs = [...(cfg.preferredIPs || []), ...add0];
+        poolHit = true;
+      }
+    } catch (e) { /* 读池失败回退重探测 */ }
+    if (!poolHit) try {
       const [bestcfList, hostmonitList, builtinList] = await Promise.all([
         fetchBestcfPool().catch(() => []),
         fetchLatestPreferredIPs(200).catch(() => null),
@@ -3369,6 +3397,8 @@ async function generateSubscription(cfg, requestUrl, format, ua, colo) {
       const finalCf = aliveCf.slice(0, 210);
       const finalRelay = aliveRelay.slice(0, 40);
       cfg.preferredIPs = [...(cfg.preferredIPs || []), ...finalCf, ...finalRelay].slice(0, 250);
+      // ★ 落池：初始化成功后写入 KV（6h 窗口复用），并校验本次确有新节点才写
+      kvPutInitPool(env, cfg.preferredIPs);
     } catch (e) { /* 初始化失败不影响现有逻辑 */ }
   }
   // 自定义域名部署（非 *.workers.dev）：Cloudflare 边缘实测明文 HTTP 端口（80/8080/8880/2052/2082/2086/2095）全部拒绝，
@@ -3493,7 +3523,7 @@ async function generateSubscription(cfg, requestUrl, format, ua, colo) {
     rc.optimizer.fillCount = Math.max(parseInt(rc.optimizer.fillCount) || 0, onlyV6 ? 0 : 1000);
     // 连通率提升（纯排序，不删节点）：实测存活率最高的 20 条大站任播 IP（BUILTIN_STABLE_IPS）排到优选池最前——
     // 客户端默认选第一个可用节点，头部放最稳 IP = 用户优先踩到高存活率节点；其它来源顺序与数量不变（appendStableNodes 自带 used 去重不会重复）
-    if (rc.preferredIPs && rc.preferredIPs.length) {
+    if (cfg.probeAlive && rc.preferredIPs && rc.preferredIPs.length) {  // 测活关闭（1.0.6）不把保底静态池排最前
       const stableNodes = BUILTIN_STABLE_IPS.map((ip, i) => ({ ip, port: 443, name: '优选IP-S' + String(i + 1).padStart(2, '0') }));
       const stableSet = new Set(stableNodes.map(n => n.ip));
       rc.preferredIPs = [...stableNodes, ...rc.preferredIPs.filter(x => !stableSet.has(x.ip))];
@@ -3556,7 +3586,7 @@ async function generateSubscription(cfg, requestUrl, format, ua, colo) {
   // 保证订阅内始终有稳定可用节点（参考 TunnelBoard 内置优选思路）；仅勾选 IPv6 时跳过（保底池为 IPv4）
   // 内置保底节点：严格自定义模式（仅自定义节点）且已有自定义节点时跳过——用户自担可用性，不混入「内置·保底-X」；
   // 严格模式解析结果为空时仍追加保底，保证订阅永不为空（客户端不会收到「无效订阅」）
-  if (!onlyV6 && !(strictCustom && nodes.length > 0)) appendStableNodes(nodes, rc, cap);
+  if (cfg.probeAlive && !onlyV6 && !(strictCustom && nodes.length > 0)) appendStableNodes(nodes, rc, cap);  // 测活关闭（1.0.6）不追加「内置·保底」节点
   // 下发控制开启时按 cap 补足（全局生效，与轮询状态无关）：优先用 bestcf 区域优选池（实时测速过的优质 IP）补齐，
   // 不足再用 ProxyIP 域名兜底（TCP 测活通过才下发），最后才回退 CF CIDR 随机生成——
   // 避免下发大量「延迟 -1」的随机 IP 死节点（参考 TunnelBoard：订阅场景不生成随机 IP）
@@ -3598,6 +3628,16 @@ async function generateSubscription(cfg, requestUrl, format, ua, colo) {
   }
   // 严格封顶：多协议膨胀可能越过 cap 一个 IP（3 条），统一截断到上限；节点数量控制开启时同样按设定值精确截断
   if (nodes.length > cap) nodes.length = cap;
+  // 负载均衡（面板「下发控制」可关，默认开启）：对最终节点列表做 Fisher-Yates 随机轮换——
+  // 只打乱下发顺序、不改变节点集合与可用性；客户端（自动择优/优先取头部）随刷新落在不同节点，
+  // 连接在整批节点间分散，避免所有客户端集中踩同一批头部「最优 IP」导致拥塞、全体变慢；
+  // 随机优选模式本身即随机生成（跳过），轮询去重（KV issued 按 IP 集合记录）与顺序无关
+  if (cfg.loadBalance !== false && nodes.length > 1 && mode !== 'random') {
+    for (let i = nodes.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const t = nodes[i]; nodes[i] = nodes[j]; nodes[j] = t;
+    }
+  }
   // 收集本次下发的所有 IP 型节点地址（排除域名），记录到 KV issued 供下次去重
   const issuedIPs = [];
   const seenIssued = new Set();
@@ -3982,8 +4022,8 @@ pre.code{background:var(--bg2);border:1px solid var(--border);border-radius:8px;
 
     <!-- ===== 视图：节点配置（协议 / TLS / ECH / 落地出站） ===== -->
     <section class="view" data-view="nodes">
-      <div class="view-head"><h2>节点配置</h2><p>代理协议、TLS/ECH、节点测活与落地出站（保存后立即生效）</p></div>
-      <div class="grid3">
+      <div class="view-head"><h2>节点配置</h2><p>代理协议、TLS/ECH、节点测活、负载均衡与落地出站（保存后立即生效）</p></div>
+      <div class="grid2">
         <div class="card">
           <h3><span class="tick"></span>协议开关</h3>
           <div class="proto-row"><label class="switch"><input type="checkbox" id="en-vless" checked><span class="sl"></span></label><span>VLESS 协议（默认开启）</span></div>
@@ -3997,10 +4037,17 @@ pre.code{background:var(--bg2);border:1px solid var(--border);border-radius:8px;
           <div class="field" style="margin-top:12px"><label>ALPN 协商（h2 / http/1.1，逗号分隔）</label><input type="text" id="alpn" placeholder="留空自动，如 h2,http/1.1" autocomplete="off"></div>
           <p class="hint">明文端口节点（80/8080/8880/2052/2082/2086/2095）在开启「仅 TLS」后将从订阅中剔除。</p>
         </div>
+      </div>
+      <div class="grid2">
         <div class="card">
           <h3><span class="tick"></span>节点测活</h3>
           <div class="proto-row"><label class="switch"><input type="checkbox" id="q-probe-on"><span class="sl"></span></label><span>节点测活（TCP 探测）</span></div>
           <p class="hint" style="margin-top:12px">关闭：不做任何 TCP 握手 / HTTP 探测与剔除，节点的下发策略、出入站方式、ProxyIP 等节点相关均按 V1.x版本处理方式处理——按数据源原始顺序全量下发，客户端自行择优。<br>开启：对候选地址做 TCP 探测并剔除判死项（含精选池 / 优选 IP / 域名预检 / ProxyIP 兜底）；Cloudflare 运行时禁止出站连接 CF IP 段，故对 CF 段 IP 跳过探测、直接视为可用（内置精选池实测 97% 可用，不会被误判清空），仅对非 CF 段（反代 / ProxyIP）真实测活剔除死节点。自定义订阅 / 随机优选模式不测活。</p>
+        </div>
+        <div class="card">
+          <h3><span class="tick"></span>负载均衡</h3>
+          <div class="proto-row"><label class="switch"><input type="checkbox" id="q-lb-on"><span class="sl"></span></label><span>负载均衡（打乱下发顺序）</span></div>
+          <p class="hint" style="margin-top:12px">每次订阅请求对节点顺序做随机轮换（Fisher-Yates），客户端连接分散到整批节点，避免全部集中踩同一批头部「最优 IP」导致拥塞变慢；关闭则保持固定顺序（头部为最稳节点）。</p>
         </div>
       </div>
       <div class="card">
@@ -4157,7 +4204,7 @@ pre.code{background:var(--bg2);border:1px solid var(--border);border-radius:8px;
         <h3><span class="tick"></span>当前下发策略</h3>
         <div class="grid3">
           <div class="field" style="margin:0"><div class="kv"><span class="k">节点数量控制</span><span class="v" id="qNl">—</span></div><div class="kv"><span class="k">精确节点上限</span><span class="v" id="qNlCount">—</span></div></div>
-          <div class="field" style="margin:0"><div class="kv"><span class="k">节点测活</span><span class="v" id="qProbe">—</span></div><div class="kv"><span class="k">轮询换新机制</span><span class="v" id="qPoll">—</span></div></div>
+          <div class="field" style="margin:0"><div class="kv"><span class="k">节点测活</span><span class="v" id="qProbe">—</span></div><div class="kv"><span class="k">轮询换新机制</span><span class="v" id="qPoll">—</span></div><div class="kv"><span class="k">负载均衡</span><span class="v" id="qLb">—</span></div></div>
           <div class="field" style="margin:0"><div class="kv"><span class="k">行式格式上限</span><span class="v">800 节点</span></div><div class="kv"><span class="k">结构化格式上限</span><span class="v">300 节点</span></div></div>
         </div>
         <p class="hint" style="margin-top:10px">每次订阅请求都会消耗 Worker 的 CPU 时间（免费计划 10ms/请求）。面板按「免费额度 → 格式 → 节点数」逐层设防，保证稳定运行。</p>
@@ -4182,6 +4229,7 @@ pre.code{background:var(--bg2);border:1px solid var(--border);border-radius:8px;
         <div class="field"><label>面板路径（访问入口，留空用 UUID）</label><input type="text" id="a-path" placeholder="留空自动使用 UUID" autocomplete="off"></div>
         <div class="field"><label>自定义订阅路径（只填 UUID/别名段，如 AAZ；留空用面板路径）</label><input type="text" id="a-suburl" placeholder="AAZ" autocomplete="off"></div>
         <div class="field"><label>管理密码（留空则面板免登录）</label><input type="password" id="a-admin" placeholder="设置后访问面板需登录" autocomplete="new-password"></div>
+        <p class="hint" style="margin-top:4px">部署后首次访问面板会强制要求先设置管理密码；设置完成后，此处留空并保存即可恢复免登录。</p>
         <div class="field" style="margin-bottom:0"><label>绑定域名（留空使用 *.workers.dev）</label><input type="text" id="a-host" placeholder="node.example.com" autocomplete="off"></div>
         <p class="hint" style="margin-top:10px">「绑定域名」仅用于订阅节点主机名（XHTTP 协议要求绑定自定义域名），不负责域名解析。自定义域名访问面板需先在 Cloudflare 面板 → Workers 与 Pages → 该 Worker → Domains &amp; Routes 添加自定义域名（DNS 由 Cloudflare 托管，证书自动签发），此字段留空即使用 *.workers.dev。KV 未绑定时配置只在内存中生效，重置后回到默认值。</p>
       </div>
@@ -4524,6 +4572,9 @@ function renderQuota(){
   var pa = !!(CFG && CFG.probeAlive);
   $('qProbe').textContent = pa ? '已开启（剔除死节点，体感更快）' : '关闭（不测活，按 V1.x 原序下发）';
   $('qProbe').className = 'v ' + (pa ? 'warn' : 'ok');
+  var lb = !(CFG && CFG.loadBalance === false);
+  $('qLb').textContent = lb ? '已开启（随机轮换）' : '关闭（固定顺序）';
+  $('qLb').className = 'v ' + (lb ? 'ok' : 'ok');
 }
 function fmtNum(n){
   if (n == null || isNaN(n)) return '—';
@@ -4661,6 +4712,7 @@ function fillForm(){
   $('q-nl-on').checked = !!CFG.nodeLimit;
   $('q-nl-count').value = CFG.nodeLimitCount || 500;
   $('q-poll-on').checked = CFG.polling !== false;
+  $('q-lb-on').checked = CFG.loadBalance !== false;
   $('q-probe-on').checked = !!CFG.probeAlive;
   $('q-auto-on').checked = !!CFG.quotaAuto;
   $('a-uuid').value = CFG.uuid || '';
@@ -4724,6 +4776,7 @@ function collectForm(){
     nodeLimit: $('q-nl-on').checked,
     nodeLimitCount: parseInt($('q-nl-count').value) || 500,
     polling: $('q-poll-on').checked,
+    loadBalance: $('q-lb-on').checked,
     probeAlive: $('q-probe-on').checked,
     cfAccountId: $('a-cfid').value.trim(),
     cfApiToken: $('a-cftoken').value.trim(),
@@ -5219,8 +5272,98 @@ button:disabled{opacity:.6;cursor:not-allowed}
 `;
 
 // ---------------------------------------------------------------------------
+// 首次设置页：部署后首次访问（KV 从未写入配置且未设置管理密码）强制设置管理密码
+// ---------------------------------------------------------------------------
+const setupHTML = `
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CFNext · 首次设置</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='3' y='3' width='18' height='18' rx='5' fill='%23f6821f'/%3E%3Cpath d='M8 15V9l8 6V9' stroke='%230d131b' stroke-width='2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#0b0f14;--card:#131a23;--border:#243041;--text:#e8eef6;--dim:#8fa3ba;--accent:#f6821f;--accent2:#ff9a3d;--accent-dim:rgba(246,130,31,.14);--err:#ff5c5c;--err-dim:rgba(255,92,92,.13)}
+[data-theme="light"]{--bg:#f3f5f9;--card:#ffffff;--border:#dde4ee;--text:#1b2634;--dim:#5d6b7d;--accent:#e8720e;--accent2:#f6821f;--accent-dim:rgba(232,114,14,.10);--err:#d94848;--err-dim:rgba(217,72,72,.10)}
+body{background:var(--bg);color:var(--text);font-family:"PingFang SC","Microsoft YaHei","Segoe UI",system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px}
+.box{width:340px;max-width:100%;background:var(--card);border:1px solid var(--border);border-radius:16px;padding:30px 28px;box-shadow:0 18px 50px rgba(0,0,0,.25)}
+[data-theme="light"] .box{box-shadow:0 14px 40px rgba(30,45,70,.10)}
+.brand{display:flex;align-items:center;gap:10px;margin-bottom:22px}
+.mark{width:38px;height:38px;border-radius:10px;background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center}
+.mark svg{width:20px;height:20px}
+.mark path{stroke:#0d131b}
+.brand .bt{display:flex;flex-direction:column;line-height:1.25}
+.brand .bt b{font-size:16px}
+.brand .bt span{font-size:11.5px;color:var(--dim)}
+h1{font-size:15px;margin-bottom:4px}
+p{color:var(--dim);font-size:13px;margin-bottom:18px}
+input{width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:9px;padding:10px 13px;font-size:14px;outline:none;margin-bottom:12px;font-family:inherit}
+input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-dim)}
+button{width:100%;background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;color:#201308;border-radius:9px;padding:11px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit}
+button:hover{filter:brightness(1.06)}
+button:disabled{opacity:.6;cursor:not-allowed}
+.msg{color:var(--err);font-size:13px;margin-bottom:12px;display:none;background:var(--err-dim);padding:8px 12px;border-radius:8px}
+.foot{margin-top:16px;text-align:center;font-size:11.5px;color:var(--dim)}
+</style>
+</head>
+<body>
+<div class="box">
+  <div class="brand">
+    <div class="mark"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h4l3-7 4 14 3-7h2"/></svg></div>
+    <div class="bt"><b>CFNext</b><span>Cloudflare 全新代理管理面板</span></div>
+  </div>
+  <h1>设置管理密码</h1>
+  <p>部署后首次访问请设置管理密码。设置后访问面板需登录。</p>
+  <div class="msg" id="msg">设置失败，请重试</div>
+  <form id="form">
+    <input type="password" id="pwd" placeholder="设置管理密码（至少 4 位）" autofocus autocomplete="new-password">
+    <input type="password" id="pwd2" placeholder="确认管理密码" autocomplete="new-password">
+    <button type="submit" id="btn">设置并进入面板</button>
+  </form>
+  <div class="foot">密码保存在 Cloudflare KV 中，之后可在「面板设置」中修改</div>
+</div>
+<script>
+(function(){
+  var t = 'dark';
+  try { t = localStorage.getItem('tp_theme') || 'dark'; } catch(e) {}
+  var resolved = t === 'auto'
+    ? (window.matchMedia && matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
+    : t;
+  document.documentElement.setAttribute('data-theme', resolved);
+  var next = new URLSearchParams(location.search).get('next') || '/';
+  document.getElementById('form').addEventListener('submit', function(e){
+    e.preventDefault();
+    var p1 = document.getElementById('pwd').value, p2 = document.getElementById('pwd2').value;
+    var msg = document.getElementById('msg');
+    var btn = document.getElementById('btn');
+    if (p1.length < 4) { msg.textContent = '密码至少 4 位'; msg.style.display = 'block'; return; }
+    if (p1 !== p2) { msg.textContent = '两次输入的密码不一致'; msg.style.display = 'block'; return; }
+    btn.disabled = true; msg.style.display = 'none';
+    fetch('/login', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'setup=1&password=' + encodeURIComponent(p1) + '&next=' + encodeURIComponent(next) })
+      .then(function(r){ return r.json(); })
+      .then(function(r){
+        if (r && r.ok){ location.href = r.next || '/'; }
+        else { msg.textContent = (r && r.msg) || '设置失败，请重试'; msg.style.display = 'block'; btn.disabled = false; }
+      })
+      .catch(function(){ msg.textContent = '网络错误，请重试'; msg.style.display = 'block'; btn.disabled = false; });
+  });
+})();
+</script>
+</body>
+</html>
+
+`;
+
+// ---------------------------------------------------------------------------
 // 路由与调度
 // ---------------------------------------------------------------------------
+// 首次部署判定：管理密码为空、且 KV 从未写入过配置（从未设置过密码）→ 强制先设置管理密码；
+// 未绑定 KV 时无法持久化密码，保持原「免登录」行为
+function needSetup(cfg, env) {
+  return !cfg.admin && !cfg.adminInit && !!(env.K && typeof env.K.get === 'function');
+}
+
 function isBrowserUA(ua) {
   // 任何包含 Mozilla 的 UA 视为浏览器；curl / ClashForAndroid / Sing-box 等客户端不含
   return (ua || '').toLowerCase().includes('mozilla');
@@ -5253,11 +5396,29 @@ async function handleRequest(request, env) {
     return json({ version: VERSION });
   }
 
-  // ---------- 登录 ----------
+  // ---------- 登录 / 首次设置 ----------
   if (segs[0] === 'login') {
+    const setupMode = !cfg.admin && needSetup(cfg, env);
     if (request.method === 'POST') {
       const body = await request.text();
       const params = new URLSearchParams(body);
+      // 首次部署：强制设置管理密码（跳过旧密码比对，直接写入本次设置的密码）
+      if (setupMode) {
+        const pwd = String(params.get('password') || '');
+        if (pwd.length < 4) return json({ ok: false, msg: '密码至少 4 位' }, 400);
+        const merged = JSON.parse(JSON.stringify(cfg));
+        merged.admin = pwd;
+        merged.adminInit = true;
+        if (!(await saveConfig(env, merged))) return json({ ok: false, msg: '未绑定 KV 命名空间，无法保存管理密码' }, 500);
+        const token = md5hex(pwd);
+        return new Response(JSON.stringify({ ok: true, next: params.get('next') || '/' }), {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Set-Cookie': `luma_auth=${token}; Path=/; Max-Age=86400; HttpOnly; Secure; SameSite=Lax`
+          }
+        });
+      }
       if (params.get('password') === cfg.admin) {
         const token = md5hex(String(cfg.admin));
         return new Response(JSON.stringify({ ok: true, next: params.get('next') || '/' }), {
@@ -5272,6 +5433,10 @@ async function handleRequest(request, env) {
     }
     if (cfg.admin) {
       return new Response(loginHTML, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+    }
+    if (setupMode) {
+      // 首次部署：强制展示「设置管理密码」页
+      return new Response(setupHTML, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
     }
     return Response.redirect(new URL('/' + panelPath, request.url).href, 302);
   }
@@ -5323,7 +5488,7 @@ async function handleRequest(request, env) {
           }
         } catch (e) { /* 监控失败不阻断订阅 */ }
       }
-      const sub = await generateSubscription(subCfg, request.url, fmt, UA, request.cf && request.cf.colo);
+      const sub = await generateSubscription(subCfg, request.url, fmt, UA, request.cf && request.cf.colo, env);
       if (cfg.polling !== false && env.K && typeof env.K.put === 'function' && sub.issued && sub.issued.length) {
         // 滑动窗口历史队列：合并历史与本次已下发 IP，去重后保留最近 200 条（新 IP 优先保留），
         // 既实现客户端定期换新 IP，又避免集合无限增长或清空引起数量塌陷
@@ -5346,6 +5511,10 @@ async function handleRequest(request, env) {
 
   // ---------- 面板（浏览器访问） ----------
   if (isPanelRoot && segs.length === 1 && isBrowserUA(UA)) {
+    if (needSetup(cfg, env)) {
+      // 首次部署：未设置管理密码 → 强制先完成首次设置再进入面板
+      return Response.redirect(new URL('/login?setup=1&next=' + encodeURIComponent('/' + panelPath), request.url).href, 302);
+    }
     if (!(await requireAuth(request, cfg))) {
       return Response.redirect(new URL('/login?next=' + encodeURIComponent('/' + panelPath), request.url).href, 302);
     }
@@ -5355,6 +5524,10 @@ async function handleRequest(request, env) {
   // ---------- API ----------
   if (isPanelRoot && segs[1] === 'api') {
     const apiName = segs[2] || '';
+    // 首次部署：完成首次设置前拒绝 API 访问（避免未设密阶段配置被直接写入）
+    if (needSetup(cfg, env)) {
+      return json({ ok: false, status: 403, msg: '请先完成首次设置：设置管理密码后再访问面板' }, 403);
+    }
     const authed = await requireAuth(request, cfg);
     if (!authed) {
       return json({ ok: false, status: 403, msg: '未授权（需要管理密码）' }, 403);
@@ -5424,7 +5597,7 @@ async function handleRequest(request, env) {
     if (apiName === 'sub') {
       const fmt = url.searchParams.get('fmt') || '';
       try {
-        const sub = await generateSubscription(cfg, request.url, fmt, UA, request.cf && request.cf.colo);
+        const sub = await generateSubscription(cfg, request.url, fmt, UA, request.cf && request.cf.colo, env);
         return json({ ok: true, type: sub.type, body: sub.body });
       } catch (e) { return json({ ok: false, msg: '订阅生成失败: ' + (e.message || e) }, 500); }
     }
@@ -5471,7 +5644,13 @@ async function handleScheduled(_controller, env, _ctx) {
     const results = await runLatencyTest(candidates, cfg.optimizer.threads || 5, 5000);
     const best = results.filter(r => r.ok).slice(0, cfg.optimizer.count || 20);
     if (!best.length) return;
-    cfg.preferredIPs = best.map(r => ({ ip: r.ip, port: r.port || 443, name: '' }));
+    const newIPs = best.map(r => ({ ip: r.ip, port: r.port || 443, name: '' }));
+    // ★ 节流：最优 IP 集合未变化时不写 KV（免费 KV 写额度 1000 次/日，避免高频 cron 写爆）；
+    // 按「top 集合一致」判断（负载均衡默认打乱顺序，顺序本身无意义，集合一致即无需更新）
+    const cur = new Set((cfg.preferredIPs || []).map(x => x.ip));
+    const nw = new Set(newIPs.map(x => x.ip));
+    if (cur.size === nw.size && [...nw].every(ip => cur.has(ip))) return;   // 无变化，跳过写入
+    cfg.preferredIPs = newIPs;
     await saveConfig(env, cfg);
   } catch (e) { /* 忽略 */ }
 }
