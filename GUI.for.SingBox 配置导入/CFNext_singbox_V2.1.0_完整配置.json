@@ -1,0 +1,715 @@
+{
+  "log": {
+    "level": "info"
+  },
+  "dns": {
+    "servers": [
+      {
+        "address": "223.5.5.5"
+      },
+      {
+        "address": "119.29.29.29"
+      }
+    ]
+  },
+  "inbounds": [
+    {
+      "type": "mixed",
+      "tag": "mixed-in",
+      "listen": "127.0.0.1",
+      "listen_port": 2080
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "vless",
+      "tag": "香港-01",
+      "server": "104.17.127.180",
+      "server_port": 443,
+      "uuid": "11111111-2222-3333-4444-555555555555",
+      "packet_encoding": "xudp",
+      "tls": {
+        "enabled": true,
+        "server_name": "still-term-4f8d.94209188.workers.dev",
+        "insecure": true,
+        "alpn": [
+          "http/1.1"
+        ],
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/11111111-2222-3333-4444-555555555555",
+        "headers": {
+          "Host": "still-term-4f8d.94209188.workers.dev"
+        },
+        "max_early_data": 2048,
+        "early_data_header_name": "Sec-WebSocket-Protocol"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "香港-01.T",
+      "server": "104.17.127.180",
+      "server_port": 443,
+      "password": "11111111-2222-3333-4444-555555555555",
+      "tls": {
+        "enabled": true,
+        "server_name": "still-term-4f8d.94209188.workers.dev",
+        "insecure": true,
+        "alpn": [
+          "http/1.1"
+        ],
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/11111111-2222-3333-4444-555555555555",
+        "headers": {
+          "Host": "still-term-4f8d.94209188.workers.dev"
+        },
+        "max_early_data": 2048,
+        "early_data_header_name": "Sec-WebSocket-Protocol"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "香港-01.X",
+      "server": "104.17.127.180",
+      "server_port": 443,
+      "uuid": "11111111-2222-3333-4444-555555555555",
+      "packet_encoding": "xudp",
+      "tls": {
+        "enabled": true,
+        "server_name": "still-term-4f8d.94209188.workers.dev",
+        "insecure": true,
+        "alpn": [
+          "h2"
+        ]
+      },
+      "transport": {
+        "type": "xhttp",
+        "mode": "stream-one",
+        "path": "/11111111-2222-3333-4444-555555555555"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "香港-02",
+      "server": "104.16.123.96",
+      "server_port": 443,
+      "uuid": "11111111-2222-3333-4444-555555555555",
+      "packet_encoding": "xudp",
+      "tls": {
+        "enabled": true,
+        "server_name": "still-term-4f8d.94209188.workers.dev",
+        "insecure": true,
+        "alpn": [
+          "http/1.1"
+        ],
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/11111111-2222-3333-4444-555555555555",
+        "headers": {
+          "Host": "still-term-4f8d.94209188.workers.dev"
+        },
+        "max_early_data": 2048,
+        "early_data_header_name": "Sec-WebSocket-Protocol"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "香港-02.T",
+      "server": "104.16.123.96",
+      "server_port": 443,
+      "password": "11111111-2222-3333-4444-555555555555",
+      "tls": {
+        "enabled": true,
+        "server_name": "still-term-4f8d.94209188.workers.dev",
+        "insecure": true,
+        "alpn": [
+          "http/1.1"
+        ],
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/11111111-2222-3333-4444-555555555555",
+        "headers": {
+          "Host": "still-term-4f8d.94209188.workers.dev"
+        },
+        "max_early_data": 2048,
+        "early_data_header_name": "Sec-WebSocket-Protocol"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "香港-02.X",
+      "server": "104.16.123.96",
+      "server_port": 443,
+      "uuid": "11111111-2222-3333-4444-555555555555",
+      "packet_encoding": "xudp",
+      "tls": {
+        "enabled": true,
+        "server_name": "still-term-4f8d.94209188.workers.dev",
+        "insecure": true,
+        "alpn": [
+          "h2"
+        ]
+      },
+      "transport": {
+        "type": "xhttp",
+        "mode": "stream-one",
+        "path": "/11111111-2222-3333-4444-555555555555"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "香港-03",
+      "server": "104.16.124.96",
+      "server_port": 443,
+      "uuid": "11111111-2222-3333-4444-555555555555",
+      "packet_encoding": "xudp",
+      "tls": {
+        "enabled": true,
+        "server_name": "still-term-4f8d.94209188.workers.dev",
+        "insecure": true,
+        "alpn": [
+          "http/1.1"
+        ],
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/11111111-2222-3333-4444-555555555555",
+        "headers": {
+          "Host": "still-term-4f8d.94209188.workers.dev"
+        },
+        "max_early_data": 2048,
+        "early_data_header_name": "Sec-WebSocket-Protocol"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "香港-03.T",
+      "server": "104.16.124.96",
+      "server_port": 443,
+      "password": "11111111-2222-3333-4444-555555555555",
+      "tls": {
+        "enabled": true,
+        "server_name": "still-term-4f8d.94209188.workers.dev",
+        "insecure": true,
+        "alpn": [
+          "http/1.1"
+        ],
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/11111111-2222-3333-4444-555555555555",
+        "headers": {
+          "Host": "still-term-4f8d.94209188.workers.dev"
+        },
+        "max_early_data": 2048,
+        "early_data_header_name": "Sec-WebSocket-Protocol"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "香港-03.X",
+      "server": "104.16.124.96",
+      "server_port": 443,
+      "uuid": "11111111-2222-3333-4444-555555555555",
+      "packet_encoding": "xudp",
+      "tls": {
+        "enabled": true,
+        "server_name": "still-term-4f8d.94209188.workers.dev",
+        "insecure": true,
+        "alpn": [
+          "h2"
+        ]
+      },
+      "transport": {
+        "type": "xhttp",
+        "mode": "stream-one",
+        "path": "/11111111-2222-3333-4444-555555555555"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "香港-04",
+      "server": "104.16.125.96",
+      "server_port": 443,
+      "uuid": "11111111-2222-3333-4444-555555555555",
+      "packet_encoding": "xudp",
+      "tls": {
+        "enabled": true,
+        "server_name": "still-term-4f8d.94209188.workers.dev",
+        "insecure": true,
+        "alpn": [
+          "http/1.1"
+        ],
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/11111111-2222-3333-4444-555555555555",
+        "headers": {
+          "Host": "still-term-4f8d.94209188.workers.dev"
+        },
+        "max_early_data": 2048,
+        "early_data_header_name": "Sec-WebSocket-Protocol"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "香港-04.T",
+      "server": "104.16.125.96",
+      "server_port": 443,
+      "password": "11111111-2222-3333-4444-555555555555",
+      "tls": {
+        "enabled": true,
+        "server_name": "still-term-4f8d.94209188.workers.dev",
+        "insecure": true,
+        "alpn": [
+          "http/1.1"
+        ],
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/11111111-2222-3333-4444-555555555555",
+        "headers": {
+          "Host": "still-term-4f8d.94209188.workers.dev"
+        },
+        "max_early_data": 2048,
+        "early_data_header_name": "Sec-WebSocket-Protocol"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "香港-04.X",
+      "server": "104.16.125.96",
+      "server_port": 443,
+      "uuid": "11111111-2222-3333-4444-555555555555",
+      "packet_encoding": "xudp",
+      "tls": {
+        "enabled": true,
+        "server_name": "still-term-4f8d.94209188.workers.dev",
+        "insecure": true,
+        "alpn": [
+          "h2"
+        ]
+      },
+      "transport": {
+        "type": "xhttp",
+        "mode": "stream-one",
+        "path": "/11111111-2222-3333-4444-555555555555"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "优选IP-010",
+      "server": "162.159.0.1",
+      "server_port": 443,
+      "uuid": "11111111-2222-3333-4444-555555555555",
+      "packet_encoding": "xudp",
+      "tls": {
+        "enabled": true,
+        "server_name": "still-term-4f8d.94209188.workers.dev",
+        "insecure": true,
+        "alpn": [
+          "http/1.1"
+        ],
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/11111111-2222-3333-4444-555555555555",
+        "headers": {
+          "Host": "still-term-4f8d.94209188.workers.dev"
+        },
+        "max_early_data": 2048,
+        "early_data_header_name": "Sec-WebSocket-Protocol"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "优选IP-010.T",
+      "server": "162.159.0.1",
+      "server_port": 443,
+      "password": "11111111-2222-3333-4444-555555555555",
+      "tls": {
+        "enabled": true,
+        "server_name": "still-term-4f8d.94209188.workers.dev",
+        "insecure": true,
+        "alpn": [
+          "http/1.1"
+        ],
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/11111111-2222-3333-4444-555555555555",
+        "headers": {
+          "Host": "still-term-4f8d.94209188.workers.dev"
+        },
+        "max_early_data": 2048,
+        "early_data_header_name": "Sec-WebSocket-Protocol"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "优选IP-010.X",
+      "server": "162.159.0.1",
+      "server_port": 443,
+      "uuid": "11111111-2222-3333-4444-555555555555",
+      "packet_encoding": "xudp",
+      "tls": {
+        "enabled": true,
+        "server_name": "still-term-4f8d.94209188.workers.dev",
+        "insecure": true,
+        "alpn": [
+          "h2"
+        ]
+      },
+      "transport": {
+        "type": "xhttp",
+        "mode": "stream-one",
+        "path": "/11111111-2222-3333-4444-555555555555"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "优选IP-011",
+      "server": "188.114.96.1",
+      "server_port": 443,
+      "uuid": "11111111-2222-3333-4444-555555555555",
+      "packet_encoding": "xudp",
+      "tls": {
+        "enabled": true,
+        "server_name": "still-term-4f8d.94209188.workers.dev",
+        "insecure": true,
+        "alpn": [
+          "http/1.1"
+        ],
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/11111111-2222-3333-4444-555555555555",
+        "headers": {
+          "Host": "still-term-4f8d.94209188.workers.dev"
+        },
+        "max_early_data": 2048,
+        "early_data_header_name": "Sec-WebSocket-Protocol"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "优选IP-011.T",
+      "server": "188.114.96.1",
+      "server_port": 443,
+      "password": "11111111-2222-3333-4444-555555555555",
+      "tls": {
+        "enabled": true,
+        "server_name": "still-term-4f8d.94209188.workers.dev",
+        "insecure": true,
+        "alpn": [
+          "http/1.1"
+        ],
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/11111111-2222-3333-4444-555555555555",
+        "headers": {
+          "Host": "still-term-4f8d.94209188.workers.dev"
+        },
+        "max_early_data": 2048,
+        "early_data_header_name": "Sec-WebSocket-Protocol"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "优选IP-011.X",
+      "server": "188.114.96.1",
+      "server_port": 443,
+      "uuid": "11111111-2222-3333-4444-555555555555",
+      "packet_encoding": "xudp",
+      "tls": {
+        "enabled": true,
+        "server_name": "still-term-4f8d.94209188.workers.dev",
+        "insecure": true,
+        "alpn": [
+          "h2"
+        ]
+      },
+      "transport": {
+        "type": "xhttp",
+        "mode": "stream-one",
+        "path": "/11111111-2222-3333-4444-555555555555"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "优选IP-012",
+      "server": "104.17.24.252",
+      "server_port": 443,
+      "uuid": "11111111-2222-3333-4444-555555555555",
+      "packet_encoding": "xudp",
+      "tls": {
+        "enabled": true,
+        "server_name": "still-term-4f8d.94209188.workers.dev",
+        "insecure": true,
+        "alpn": [
+          "http/1.1"
+        ],
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/11111111-2222-3333-4444-555555555555",
+        "headers": {
+          "Host": "still-term-4f8d.94209188.workers.dev"
+        },
+        "max_early_data": 2048,
+        "early_data_header_name": "Sec-WebSocket-Protocol"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "优选IP-012.T",
+      "server": "104.17.24.252",
+      "server_port": 443,
+      "password": "11111111-2222-3333-4444-555555555555",
+      "tls": {
+        "enabled": true,
+        "server_name": "still-term-4f8d.94209188.workers.dev",
+        "insecure": true,
+        "alpn": [
+          "http/1.1"
+        ],
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/11111111-2222-3333-4444-555555555555",
+        "headers": {
+          "Host": "still-term-4f8d.94209188.workers.dev"
+        },
+        "max_early_data": 2048,
+        "early_data_header_name": "Sec-WebSocket-Protocol"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "优选IP-012.X",
+      "server": "104.17.24.252",
+      "server_port": 443,
+      "uuid": "11111111-2222-3333-4444-555555555555",
+      "packet_encoding": "xudp",
+      "tls": {
+        "enabled": true,
+        "server_name": "still-term-4f8d.94209188.workers.dev",
+        "insecure": true,
+        "alpn": [
+          "h2"
+        ]
+      },
+      "transport": {
+        "type": "xhttp",
+        "mode": "stream-one",
+        "path": "/11111111-2222-3333-4444-555555555555"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "优选IP-013",
+      "server": "188.114.99.52",
+      "server_port": 443,
+      "uuid": "11111111-2222-3333-4444-555555555555",
+      "packet_encoding": "xudp",
+      "tls": {
+        "enabled": true,
+        "server_name": "still-term-4f8d.94209188.workers.dev",
+        "insecure": true,
+        "alpn": [
+          "http/1.1"
+        ],
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/11111111-2222-3333-4444-555555555555",
+        "headers": {
+          "Host": "still-term-4f8d.94209188.workers.dev"
+        },
+        "max_early_data": 2048,
+        "early_data_header_name": "Sec-WebSocket-Protocol"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "优选IP-013.T",
+      "server": "188.114.99.52",
+      "server_port": 443,
+      "password": "11111111-2222-3333-4444-555555555555",
+      "tls": {
+        "enabled": true,
+        "server_name": "still-term-4f8d.94209188.workers.dev",
+        "insecure": true,
+        "alpn": [
+          "http/1.1"
+        ],
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/11111111-2222-3333-4444-555555555555",
+        "headers": {
+          "Host": "still-term-4f8d.94209188.workers.dev"
+        },
+        "max_early_data": 2048,
+        "early_data_header_name": "Sec-WebSocket-Protocol"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "优选IP-013.X",
+      "server": "188.114.99.52",
+      "server_port": 443,
+      "uuid": "11111111-2222-3333-4444-555555555555",
+      "packet_encoding": "xudp",
+      "tls": {
+        "enabled": true,
+        "server_name": "still-term-4f8d.94209188.workers.dev",
+        "insecure": true,
+        "alpn": [
+          "h2"
+        ]
+      },
+      "transport": {
+        "type": "xhttp",
+        "mode": "stream-one",
+        "path": "/11111111-2222-3333-4444-555555555555"
+      }
+    },
+    {
+      "type": "direct",
+      "tag": "direct"
+    },
+    {
+      "type": "block",
+      "tag": "block"
+    },
+    {
+      "type": "selector",
+      "tag": "🚀 节点选择",
+      "outbounds": [
+        "香港-01",
+        "香港-01.T",
+        "香港-01.X",
+        "香港-02",
+        "香港-02.T",
+        "香港-02.X",
+        "香港-03",
+        "香港-03.T",
+        "香港-03.X",
+        "香港-04",
+        "香港-04.T",
+        "香港-04.X",
+        "优选IP-010",
+        "优选IP-010.T",
+        "优选IP-010.X",
+        "优选IP-011",
+        "优选IP-011.T",
+        "优选IP-011.X",
+        "优选IP-012",
+        "优选IP-012.T",
+        "优选IP-012.X",
+        "优选IP-013",
+        "优选IP-013.T",
+        "优选IP-013.X"
+      ]
+    },
+    {
+      "type": "selector",
+      "tag": "🎯 全球直连",
+      "outbounds": [
+        "direct"
+      ]
+    },
+    {
+      "type": "selector",
+      "tag": "🐟 漏网之鱼",
+      "outbounds": [
+        "🚀 节点选择",
+        "🎯 全球直连"
+      ]
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "geoip": [
+          "cn"
+        ],
+        "outbound": "direct"
+      },
+      {
+        "outbound": "🐟 漏网之鱼"
+      }
+    ]
+  }
+}
