@@ -5,6 +5,19 @@
 > **[Telegram 交流群](https://t.me/SZ_PAI)**　**[YouTube 频道](https://www.youtube.com/@PAI_CN)**
 
 ---
+
+# 更新日志 _V2.2.0
+
+## ✨ 更新内容
+- **新增「家宽模式」模块（VPN Gate OpenVPN）**：自动拉取 VPN Gate 当日列表，下发为「家宽XX」节点（XX 为地区，同地区自动加序号）；开启后家宽 OpenVPN 节点通过「隧道前置」自动测活组拨号，先经自有 CF 节点握手、OpenVPN 传输整体走 CF 隧道，隧道自动切换，解决大陆直连 VPN Gate 失败
+- **VPN Gate 列表缓存与代拉**：列表缓存 30 分钟（每小时清空重建、每 5 分钟按吞吐重排），缓存不足 30 台自动强制刷新，拉取失败回退上一份缓存；大陆直连超时由 Worker 边缘代拉
+
+## 🐛 BUG 处理
+- **订阅 Clash 配置 geosite 补全**：从 GitHub 获取规则集补全 Clash 配置中的 geosite 分流
+- **ALPN 协商随面板设置下发**：h2 / http/1.1 逗号分隔，Clash、Sing-box 与 VLESS/Trojan/XHTTP 节点链接均实际下发
+- **补全GUI.for.SingBox规则集**：使用**GUI.for.SingBox客户端**请通过**导入 sing-box 配置**插件进行导入，**快速开始**下载配置文件会报错导致内核无法拉起
+
+---
 # 更新日志  _V2.1.0
 
 ### ✨ 更新内容
@@ -13,8 +26,6 @@
 ### 🐛 BUG 处理
 1.修复2.0版本下发的配置文件在SingBox客户端无法启动的两处问题，
 - 开启多协议后节点名称出现重复，SingBox客户端配置要求不能出现重复名称，更新重命名协议，Vless→无，Trojian→XX.T，Xhttp→XX.X；
-- SingBox客户端启动时要下载 GeoIP/GeoSite 规则集，testingcf.jsdelivr.net`在国内连不上 → 5 个规则集全部 context deadline exceeded 超时 → 客户端 FATAL 退出。SingBox配置文件回归1.0.6的极简形态；
-
 
 ---
 

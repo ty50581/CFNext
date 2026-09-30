@@ -1,3 +1,0 @@
-使用GUI.for.SingBox客户端如遇到下载的配置文件无法正常拉起内核，可尝试使用这个配置文件进行替换，使用方法：把 CFNext 配置写入.bat 和 CFNext_singbox_V2.1.0_完整配置.json 放同一目录
-目标文件被占用时（GUI.for.SingBox 运行中）会提示关闭后重试
-默认写 data\sing-box\config.json（GUI.for.SingBox 实际运行的配置）；输入 profiles.yaml 等其它名称也可以写对应文件
