@@ -3,7 +3,9 @@
 > **CFNext —— 部署在 Cloudflare Workers / Pages 的代理订阅管理面板**，单文件同时实现 VLESS / Trojan / XHTTP 多协议代理与图形化配置：`/UUID`（或自定义路径）进入面板，`/sub` 输出订阅；内置节点优选器、节点数量控制、轮询下发、ECH 加密、落地与出站代理及地区 / 运营商 / IP 版本多维筛选，部署即用，绑定 KV 后改完即生效。
 >
 > **[Telegram 交流群](https://t.me/SZ_PAI)**　**[YouTube 频道](https://www.youtube.com/@PAI_CN)**
-
+> 
+---
+# 项目貌似被特征，请暂停部署，等待更新！
 ---
 
 # 更新日志 _V2.6.0 （修复滥用）
