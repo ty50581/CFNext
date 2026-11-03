@@ -3,6 +3,8 @@
 > 部署在 Cloudflare Workers / Pages 的代理订阅管理面板，单文件同时实现 VLESS / Trojan / XHTTP 多协议代理与图形化配置：`/UUID`（或自定义路径）进入面板，`/sub` 输出订阅；内置节点优选器、节点数量控制、轮询下发、ECH 加密、落地与出站代理及地区 / 运营商 / IP 版本多维筛选，并新增 **MASQUE / 家宽** 三种节点模式与**前后端分离**部署形态。部署即用，绑定 KV 后改完即生效。
 >
 > **[✈ Telegram 交流群](https://t.me/SZ_PAI)**
+> **[✈ Telegram 发布频道](https://t.me/PaiCNX)**
+> **[✨ CFNext专用优选器](https://github.com/PAICNI/CFScan)**  
 > **[📺️ YouTube 频道](https://www.youtube.com/@PAI_CN)**
 > **[▶️ 3.0 新版本部署教程](https://www.youtube.com/watch?v=CQ8zvWXkZzA)**
 > **[▶️ 2.0 Worker模式视频使用教程](https://youtu.be/1GCZgdGFsk0)**
@@ -364,7 +366,6 @@ Proxy-HK.SenflareLink.Kdns.fr,Proxy-TW.SenflareLink.Kdns.fr,Proxy-JP.SenflareLin
 ## 🐛 BUG 处理
 1. **Trojan 协议在 Mihomo/Clash Verge 中延迟失败/不可用的问题**
 2. 更换Mihomo内核下发的配置文件，新配置增加防DNS泄露；
-3. 根据现有代码，更新**特别鸣谢/调用 API 接口名单**
 
 
 ## 🚩 节点名称说明：
@@ -462,9 +463,8 @@ Proxy-HK.SenflareLink.Kdns.fr,Proxy-TW.SenflareLink.Kdns.fr,Proxy-JP.SenflareLin
 | 形态        | 文件名称                         | 部署目标        | 说明                                       |
 | --------- | ---------------------------- | ----------- | ---------------------------------------- |
 | 单文件·明文版   | `CFNext-明文版.js`       | Worker      | 面板 + 后端一体，源码可读，**仅供阅读 / 二次开发，不建议直接部署**   |
-| 单文件·混淆版   | `CFNext-混淆版.js`       | Worker      | 面板 + 后端一体，terser 混淆 + ASCII 化，**日常部署推荐** |
 | 单文件·小说混淆版 | `CFNext-小说混淆版.js`     | Worker      | 面板 + 后端一体，正文嵌入语料、占比约 66%，体积最大            |
-| 单文件·Pages | `CFNext-混淆Pages版.zip` | Pages（高级模式） | 单文件混淆版打包为 `_worker.js`，走 Pages 通道        |
+| 单文件·Pages | `CFNext-小说混淆Pages版.zip` | Pages（高级模式） | 单文件混淆版打包为 `_worker.js`，走 Pages 通道        |
 | 分离版·后端    | `CFNext-后端Worker版.js` | Worker      | 纯节点 / 订阅 / `/api/*`，**无面板、无登录**          |
 | 分离版·前端    | `CFNext-前端Pages版.zip` | Pages（高级模式） | 面板 UI + 登录 + 多后端管理 + 聚合下发                |
 
