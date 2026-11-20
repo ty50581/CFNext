@@ -4,7 +4,7 @@
 >
 > #### 获取最新代码及明文代码：[✈ Telegram 交流群](https://t.me/SZ_PAI)[✈ Telegram 发布频道](https://t.me/PaiCNX)
 > 
-> #### 一键部署/优选/上报/管理工具：[✨ CFScan专用优选器](https://github.com/PAICNI/CFScan)
+> #### 一键部署/优选/上报/管理工具：[✨ Next Kit 优选管理工具](https://github.com/PAICNI/Next_Kit)
 > 
 > #### 订阅开发者频道，支持开发者：[📺️ 我的 YouTube频道](https://www.youtube.com/@PAI_CN)
 > 
@@ -19,7 +19,7 @@
 
 | 项    | 内容                                                                                              |
 | ---- | ----------------------------------------------------------------------------------------------- |
-| 当前版本 | `3.1.3`                                                                                         |
+| 当前版本 | `3.1.4`                                                                                         |
 | 部署平台 | Cloudflare **Workers** / **Pages**                                                              |
 | 协议   | VLESS / Trojan / XHTTP / MASQUE / OpenVPN（家宽）                                  |
 | 订阅格式 | Clash（mihomo / Verge）、sing-box、Karing、v2rayN等                                                   |
