@@ -189,7 +189,7 @@ const e = atob,
       "):\\/\\/[^@\\s/]+@(\\[[0-9a-fA-F:]+\\]|[A-Za-z0-9.-]+)(?::(\\d{1,5}))?",
   ),
   s = new RegExp("^" + e("dmxlc3M=") + ":\\/\\/"),
-  i = "3.1.5",
+  i = "3.1.6",
   DEPLOY_EDITION = "\u5206\u79bb\u7248",
   c = "CFN" + "ext",
   l = "luma" + "_auth",
@@ -1568,7 +1568,15 @@ async function nt(t, n = 800, r = null, o) {
     l = 1 === c.length && "IPv6" === c[0],
     u = an(t),
     p = l ? I : u ? [...y, ...I] : y,
-    d = "custom" === i && !(t.optimizer && t.optimizer.subIncludeDefault),
+    // “追加内置”只在开启精确节点数量控制且目标数有效时生效；否则自定义模式严格只用用户来源。
+    d =
+      "custom" === i &&
+      !(
+        t.optimizer &&
+        t.optimizer.subIncludeDefault &&
+        t.nodeLimit &&
+        parseInt(t.nodeLimitCount) > 0
+      ),
     h = { f: !!t.freeCpu, b: 0, cap: 65536, n: 120 },
     f = (r, i, c, l, u) => {
       const p = a.length,
@@ -1670,7 +1678,7 @@ async function nt(t, n = 800, r = null, o) {
         !0 === t.relay || (Te(t.ip) && !Jt(t.ip)),
       );
     }),
-    !("custom" !== i || (t.optimizer && t.optimizer.subIncludeDefault)))
+    "custom" === i && d)
   )
     return a;
   // 没有任何用户来源时才用内置池兜底；自定义订阅且关闭「追加内置」时不兜底，
@@ -2310,12 +2318,26 @@ const xt = [
 // ---- 数据面统一上限（全局常量，不接受配置项覆盖）----
 const _NET_LIMITS = Object.freeze({
   connectTimeoutMs: 1000,
+  telegramConnectTimeoutMs: 4000,
   readTimeoutDefaultMs: 6000,
   readTimeoutMaxMs: 12000,
   raceMax: 6,
   writeQueueItems: 256,
   writeQueueBytes: 4194304,
 });
+function _isTelegramTarget(t) {
+  const e = String(t || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^\[|\]$/g, "");
+  if (
+    /^149\.154\.(?:16\d|17[0-5])\./.test(e) ||
+    /^91\.108\.(?:[4-9]|1\d|2[0-3]|5[6-9])\./.test(e) ||
+    /^185\.76\.151\./.test(e)
+  )
+    return !0;
+  return /^(?:2001:b28:f23[cd-f]|2001:67c:4e8):/i.test(e);
+}
 function _boundedInt(t, e, n, r) {
   const o = Number.parseInt(t, 10);
   return Number.isFinite(o) ? Math.max(n, Math.min(r, o)) : e;
@@ -3383,7 +3405,17 @@ async function Dt(t, r, o, a, s, 连接头) {
           return await X(o.map((t) => () => d(() => It(t))));
         });
     },
-    S = () => d(() => It(I)),
+    // Telegram DC 在部分 Cloudflare 机房建立 TCP 会超过通用的 1 秒上限。
+    // 参考实现使用约 4 秒；仅对 Telegram 官方网段放宽，其他目标仍保持 1 秒。
+    S = () =>
+      d(() =>
+        It(
+          I,
+          _isTelegramTarget(t.addr)
+            ? _NET_LIMITS.telegramConnectTimeoutMs
+            : void 0,
+        ),
+      ),
     v = u ? () => d(() => u(I)) : null;
   if ("only" === c && v) return (await v()) || h();
   if ("" === c && v) {
@@ -4834,7 +4866,16 @@ async function me(t, e = 100, n = 300, r = !1, o = !0, s = !1) {
               } catch (t) {}
             (/^https?:\/\//i.test(e) || (e = "https://" + e), (t = e));
           }
-          const i = "url:" + t + (r ? "|rf" : "") + (o ? "" : "|raw"),
+          // 远程源缓存必须区分本次解析上限。否则用户先以 200 条访问后，
+          // 再把精确节点数调到 1000，仍会复用首次只解析 200 条的缓存。
+          // schema 标记同时淘汰旧版本中已丢失自定义名称的缓存。
+          const i =
+              "url:v316-custom-names:" +
+              t +
+              (r ? "|rf" : "") +
+              (o ? "" : "|raw") +
+              "|limit:" +
+              e,
             l = "srccache:" + Wt(i).slice(0, 24),
             u = se.get(i);
           if (u && c - u.t < 6e5) return u.ips.slice(0, e);
@@ -5042,7 +5083,9 @@ async function me(t, e = 100, n = 300, r = !1, o = !0, s = !1) {
               if (!g(r)) continue;
               d.add(a);
               const s = (n[3] || "").trim();
-              if (s && !/[\u4e00-\u9fa5]/.test(s) && !s.includes("|")) {
+              // 简单 `IP:端口#名称` 源的备注属于用户数据，应逐字保留（含中文/Emoji）。
+              // 只有带 `|` 的结构化元数据才进入下方国家/地区归一化逻辑。
+              if (s && !s.includes("|")) {
                 f.push({
                   ip: r,
                   port: o,
@@ -5609,29 +5652,19 @@ async function ge(t, n, a, s, i, c, l) {
         t.name || "\u4f18\u9009IP-" + String(H.indexOf(t) + 1).padStart(2, "0"),
     }));
   if ("custom" === b) {
-    const e = !(!t.optimizer || !t.optimizer.subIncludeDefault),
-      n = !e;
+    const n = t.nodeLimit
+        ? Math.min(Math.max(parseInt(t.nodeLimitCount) || 1, 1), 1e3)
+        : 5e3;
+    // 用户来源永远优先、完整解析，不因“追加内置”开关过滤非 CF IP，也不做隐式地区兜底。
+    // 内置池只允许在后续精确数量补足阶段按差额加入。
     A = await me(
       t.preferredDomains || "",
-      n ? 200 : 40,
-      n ? 2e3 : 300,
-      e,
-      e,
+      n,
+      5e3,
+      !1,
+      !1,
       T,
     );
-    // 自定义订阅且关闭「追加内置优选池与默认地区源」时，只保留用户自己的域名与手动 IP，
-    // 不再并入内置域名池 E 与硬编码优选 IP 池 H。
-    if (e) {
-      const t = await me(E, 40, 240, !1, !0, T),
-        e = new Set(t.map((t) => t.ip));
-      ((A = [...t, ...A.filter((t) => !e.has(t.ip))]),
-        (g.preferredIPs = [...(g.preferredIPs || []), ...R]),
-        g.optimizer || (g.optimizer = {}),
-        (g.optimizer.fillCount = Math.max(
-          parseInt(g.optimizer.fillCount) || 0,
-          800,
-        )));
-    }
   } else if ("" === b) {
     const e = t.src || {},
       n = !0 === e.native,
@@ -5735,13 +5768,16 @@ async function ge(t, n, a, s, i, c, l) {
   if (A.length) {
     let t = A;
     const e = (g.preferredIPs || []).length;
-    ((t = t.map((t, n) =>
-      /^[A-Za-z0-9.-]+\.[A-Za-z]{2,}-\d+$/.test(t.name || "")
-        ? Object.assign({}, t, {
-            name: "\u4f18\u9009IP-" + String(e + n + 1).padStart(2, "0"),
-          })
-        : t,
-    )),
+    // 自定义订阅模式下，用户源提供的名称属于订阅数据本身，必须原样保留。
+    // 仅非自定义模式继续兼容历史的域名占位名称改写。
+    (b !== "custom" &&
+      (t = t.map((t, n) =>
+        /^[A-Za-z0-9.-]+\.[A-Za-z]{2,}-\d+$/.test(t.name || "")
+          ? Object.assign({}, t, {
+              name: "\u4f18\u9009IP-" + String(e + n + 1).padStart(2, "0"),
+            })
+          : t,
+      )),
       (g.preferredIPs = [...(g.preferredIPs || []), ...t]));
   }
   (V &&
@@ -5863,7 +5899,14 @@ async function ge(t, n, a, s, i, c, l) {
       })(g, 0, ct(await nt(g, O, null, w), W).slice(0, 3))
     : ct(await nt(g, O, null, w), W)),
     D || (L = z(L, t, V)));
-  const Y = "custom" === b && !(t.optimizer && t.optimizer.subIncludeDefault);
+  const Y =
+    "custom" === b &&
+    !(
+      t.optimizer &&
+      t.optimizer.subIncludeDefault &&
+      t.nodeLimit &&
+      parseInt(t.nodeLimitCount) > 0
+    );
   if (
     (D ||
       Y ||
@@ -5985,7 +6028,7 @@ async function ge(t, n, a, s, i, c, l) {
         );
       });
     })(L, d, p)),
-    !(L.length || (_ && _.length)))
+    !Y && !(L.length || (_ && _.length)))
   )
     for (let t = 0; t < M.length; t++)
       try {
@@ -5993,24 +6036,23 @@ async function ge(t, n, a, s, i, c, l) {
           Re(w, M[t], 443, "\u515c\u5e95-" + String(t + 1).padStart(2, "0")),
         );
       } catch (t) {}
-  // 额度监控节点只在用户配置了 Cloudflare 监控（账户 ID + API Token）后才下发。
-  // 未配置监控时不下发，避免节点列表里多出一个必然 NXDOMAIN 的假域名节点。
+  // 额度监控只改名，不再创建 quota-monitor.cfnext.invalid 假节点：
+  // 从本次已下发的真实节点中随机选一条，完整保留协议、地址、端口和传输参数。
   try {
     const r = await pt(l || {}, t).catch(() => null);
-    if (r && r.configured) {
+    if (r && r.configured && L.length) {
       // 只要面板里填了账户 ID + API Token 就下发；API 抖动/429 时退回 0% 显示，
-      // 避免额度节点在节点列表里时有时无。
+      // 避免监控名称在节点列表里时有时无。
       const e =
           "\ud83d\udcca \u5df2\u7528: " +
           ("number" == typeof r.percent ? r.percent : 0) +
           "% \u00b7 \u5269\u4f59: " +
           ("number" == typeof r.remaining ? r.remaining : 1e5) +
           "\u6b21",
-        n = "quota-monitor.cfnext.invalid";
-      L.unshift(Re(w, n, 443, e));
-      // 额度节点只用于显示，不额外占用「精确节点数量控制」的预算：
-      // 列表已经顶到上限时把它挤掉队尾那一个，保证总数还是用户设的值。
-      L.length > O && (L.length = O);
+        n = Math.floor(Math.random() * L.length),
+        o = String(L[n]),
+        a = o.indexOf("#");
+      L[n] = (a >= 0 ? o.slice(0, a) : o) + "#" + ve(e);
     }
   } catch (t) {}
   const j = String(t.mode || "").toLowerCase(),
@@ -7525,10 +7567,10 @@ export default {
                       ? r
                       : null;
                   })(t.headers.get("sec-websocket-protocol"), n);
-                (f &&
-                  h(f).catch((t) => {
-                    _close(!0, 1011, (t && t.message) || t);
-                  }),
+                // Early Data 必须与后续 WebSocket message 共用同一条串行队列。
+                // 直接调用 h(f) 时，客户端紧接着送到的首个 message 会再次进入 h()，
+                // 两次握手可并发拨号；Telegram 启动流量很密集，竞态会表现为持续转圈。
+                (f && _push(f, !0),
                   a.addEventListener("message", (t) => {
                     try {
                       const e =
